@@ -1,0 +1,102 @@
+{
+  "projectType": "cli-tool",
+  "projectName": "WhatsApp Forensic Tool",
+  "projectDescription": "Advanced WhatsApp forensic tool for extracting, decrypting, and analyzing Android backups (crypt12/14/15) across Windows, Linux, macOS, and Android.",
+  "theme": "aspen",
+  "primaryColor": "#94cb04",
+  "lightColor": "#545454",
+  "darkColor": null,
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "installation",
+              "quickstart"
+            ]
+          },
+          {
+            "group": "Platform Guides",
+            "pages": [
+              "guides/windows",
+              "guides/linux-macos",
+              "guides/android-termux"
+            ]
+          },
+          {
+            "group": "Core Features",
+            "pages": [
+              "features/device-scanning",
+              "features/backup-extraction",
+              "features/decryption",
+              "features/database-viewer",
+              "features/chat-export",
+              "features/media-dumping"
+            ]
+          },
+          {
+            "group": "Advanced Usage",
+            "pages": [
+              "advanced/key-management",
+              "advanced/crypt-formats",
+              "advanced/troubleshooting",
+              "advanced/adb-operations"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Core Modules",
+            "pages": [
+              "api/crypto-manager",
+              "api/device-manager",
+              "api/termux-manager",
+              "api/viewer",
+              "api/ui",
+              "api/utils"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Resources",
+        "groups": [
+          {
+            "group": "Additional Resources",
+            "pages": [
+              "resources/faq",
+              "resources/legal-disclaimer",
+              "resources/contributing"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Zero-config installation with automatic ADB setup",
+    "Cross-platform support (Windows, Linux, macOS, Android/Termux)",
+    "Decryption of crypt12, crypt14, and crypt15 databases",
+    "Automated backup extraction via ADB",
+    "Interactive chat viewer with SQLite parsing",
+    "Multi-format export (HTML, CSV, JSON, TXT)",
+    "Media file extraction and linking",
+    "Encrypted key storage with machine-specific encryption"
+  ],
+  "publicApiSurface": [
+    "main.py - Application entry point",
+    "core.crypto_manager.CryptoManager - Decryption and key management",
+    "core.device_manager.DeviceManager - ADB operations and device scanning",
+    "core.termux_manager.TermuxManager - Android-native operations",
+    "core.viewer.Viewer - SQLite database parsing and chat viewing",
+    "core.ui - Rich terminal UI components",
+    "core.utils - Helper functions and logging"
+  ]
+}
