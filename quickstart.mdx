@@ -1,80 +1,619 @@
 ---
-title: "Quickstart"
-description: "Start building awesome documentation in minutes"
+title: Quick Start
+description: Complete walkthrough from device connection to viewing decrypted WhatsApp chats
 ---
 
-## Get started in three steps
+This guide walks you through your first complete workflow: connecting a device, extracting backups, decrypting the database, and viewing chat messages.
 
-Get your documentation site running locally and make your first customization.
+<Info>
+  **Time to complete**: 10-15 minutes (depending on backup size)
+</Info>
 
-### Step 1: Set up your local environment
+## Prerequisites
+
+Before starting, ensure:
+
+- ✅ Tool is installed and launches successfully
+- ✅ Android device is connected via USB (PC mode) or Termux is running (Android mode)
+- ✅ USB Debugging is enabled on the target device
+- ✅ You have the 64-character decryption key (if backups are encrypted)
+
+<Warning>
+  You must have the encryption key ready. This key is shown only once when you enable End-to-End Encrypted Backups in WhatsApp settings. Without it, decryption is impossible.
+</Warning>
+
+## Step 1: Launch the Tool
+
+Start the application using the launcher script:
+
+<CodeGroup>
+```bash Windows
+start.bat
+```
+
+```bash Linux/macOS
+bash start.sh
+```
+
+```bash Termux
+cd ~/whatsapp-forensic-tool
+bash start.sh
+```
+</CodeGroup>
+
+You'll see the main menu:
+
+```
+===========================================
+  WhatsApp Backup Forensic Tool
+===========================================
+
+Main Menu
+1. Scan Connected Devices
+2. Dump Backups from Device
+3. Decrypt Existing Backup
+4. View Decrypted Database
+5. Export Chats
+6. Deploy to Termux (Downloads)  # PC only
+7. Exit
+
+Enter choice:
+```
+
+## Step 2: Connect and Scan Device
+
+<Steps>
+  <Step title="Connect Your Android Device">
+    Connect your Android device via USB cable. If prompted on your phone, select:
+    - **File Transfer** or **MTP mode**
+    - **Allow USB Debugging** (trust this computer)
+    
+    <Note>
+      The device will remember this computer. You only need to authorize once.
+    </Note>
+  </Step>
+
+  <Step title="Scan for Devices">
+    Select option **1** (Scan Connected Devices):
+    
+    ```
+    Enter choice: 1
+    
+    [*] Scanning for devices...
+    [✓] Found 1 device(s)
+    
+    Connected Devices
+    ┌───┬──────────────┬────────────┬─────────┬────────────┐
+    │ # │ Serial       │ Model      │ Brand   │ OS         │
+    ├───┼──────────────┼────────────┼─────────┼────────────┤
+    │ 1 │ ABCD1234EFGH │ SM-G991B   │ Samsung │ Android 13 │
+    └───┴──────────────┴────────────┴─────────┴────────────┘
+    
+    [i] Auto-selected: ABCD1234EFGH
+    ```
+    
+    The tool automatically selects the device if only one is connected.
+  </Step>
+
+  <Step title="View Device Details">
+    The tool displays comprehensive device information:
+    
+    ```
+    Device Hardware
+    ┌──────────────┬─────────────────────┐
+    │ Property     │ Value               │
+    ├──────────────┼─────────────────────┤
+    │ Model        │ SM-G991B            │
+    │ Brand        │ Samsung             │
+    │ Manufacturer │ samsung             │
+    │ Device Name  │ o1s                 │
+    │ Board        │ universal9810       │
+    └──────────────┴─────────────────────┘
+    
+    Software Info
+    ┌─────────────────┬──────────┐
+    │ Property        │ Value    │
+    ├─────────────────┼──────────┤
+    │ Android Version │ 13       │
+    │ SDK API         │ 33       │
+    │ Security Patch  │ 2024-01  │
+    └─────────────────┴──────────┘
+    
+    System Status
+    ┌──────────────────┬────────────────────┐
+    │ Property         │ Value              │
+    ├──────────────────┼────────────────────┤
+    │ Battery Level    │ 78%                │
+    │ RAM Total        │ 7.62 GB            │
+    │ RAM Available    │ 3.21 GB            │
+    │ Internal Storage │ 89.3GB / 128GB     │
+    └──────────────────┴────────────────────┘
+    
+    Applications
+    ┌──────────────────────┬──────────────────────────────────┐
+    │ Property             │ Value                            │
+    ├──────────────────────┼──────────────────────────────────┤
+    │ WhatsApp Installed   │ WhatsApp Messenger (com.whatsapp)│
+    └──────────────────────┴──────────────────────────────────┘
+    ```
+  </Step>
+</Steps>
+
+## Step 3: Dump Backups from Device
+
+<Steps>
+  <Step title="Initiate Backup Scan">
+    Return to the main menu and select option **2** (Dump Backups from Device):
+    
+    ```
+    Enter choice: 2
+    
+    [*] Scanning users on ABCD1234EFGH...
+    [*] Found 1 user(s). Scanning packages...
+    [*] Scanning for backup files...
+    [✓] Found 3 backup files.
+    ```
+  </Step>
+
+  <Step title="Select Backups to Dump">
+    The tool displays all available backup files:
+    
+    ```
+    Available Backups
+    ┌───┬────────┬──────────┬──────────────────────────────────┬──────────┐
+    │ # │ User   │ Type     │ File                             │ Size     │
+    ├───┼────────┼──────────┼──────────────────────────────────┼──────────┤
+    │ 1 │ User 0 │ WhatsApp │ msgstore.db.crypt15              │ 342.18 MB│
+    │ 2 │ User 0 │ WhatsApp │ msgstore-2024-03-01.db.crypt15   │ 338.92 MB│
+    │ 3 │ User 0 │ WhatsApp │ msgstore-2024-02-25.db.crypt15   │ 335.67 MB│
+    └───┴────────┴──────────┴──────────────────────────────────┴──────────┘
+    
+    Dump Options
+    1. Dump All
+    2. Select Specific Files
+    3. Dump All WhatsApp Messenger
+    4. Dump All WhatsApp Business
+    5. Back
+    
+    Choice:
+    ```
+    
+    Select option **1** to dump all backups (recommended for first use).
+  </Step>
+
+  <Step title="Choose Media Extraction">
+    The tool asks if you want to include media files:
+    
+    ```
+    Selected 3 files to dump.
+    Include Media? (y/n) [n]:
+    ```
+    
+    - Enter **n** for faster backup (databases only)
+    - Enter **y** to include all WhatsApp media (photos, videos, documents)
+    
+    <Info>
+      Media extraction can take 10-30 minutes depending on storage size. You can always extract media later.
+    </Info>
+  </Step>
+
+  <Step title="Wait for Extraction">
+    The tool pulls files from the device with a progress bar:
+    
+    ```
+    Dumping Databases...
+    ████████████████████████████████████████ 3/3 [00:45<00:00]
+    
+    [✓] Dump process completed.
+    ```
+    
+    Files are saved to: `backups/<device_serial>/user_0/messenger/`
+  </Step>
+</Steps>
+
+## Step 4: Decrypt a Backup
+
+Now decrypt the extracted backup file:
+
+<Steps>
+  <Step title="Select Decrypt Option">
+    From the main menu, select option **3** (Decrypt Existing Backup):
+    
+    ```
+    Enter choice: 3
+    
+    Available Backups
+    ┌───┬──────────────┬────────┬──────────┬───────────────────────────┐
+    │ # │ Device       │ User   │ Type     │ File Name                 │
+    ├───┼──────────────┼────────┼──────────┼───────────────────────────┤
+    │ 1 │ ABCD1234EFGH │ User 0 │ WhatsApp │ msgstore.db.crypt15       │
+    │ 2 │ ABCD1234EFGH │ User 0 │ WhatsApp │ msgstore-2024-03-01...    │
+    │ 3 │ ABCD1234EFGH │ User 0 │ WhatsApp │ msgstore-2024-02-25...    │
+    └───┴──────────────┴────────┴──────────┴───────────────────────────┘
+    
+    Select file (number): 1
+    ```
+    
+    Choose the most recent backup (usually the first one).
+  </Step>
+
+  <Step title="Enter Decryption Key">
+    If no saved key exists, the tool prompts for the 64-character hexadecimal key:
+    
+    ```
+    Enter 64-char hex key: a1b2c3d4e5f6789012345678901234567890abcdef1234567890abcdef123456
+    
+    [*] Decrypting...
+    [*] Decrypting msgstore.db.crypt15...
+    [*] Scanning offsets for Derived Key...
+    [✓] Decrypted with Derived Key (Offset 67)
+    [✓] Saved to: backups/ABCD1234EFGH/user_0/messenger/msgstore.db.crypt15.decrypted.db
+    [✓] Key saved securely for ABCD1234EFGH (com.whatsapp)
+    ```
+    
+    <Note>
+      The key is saved in encrypted form to `~/.whatsapp-forensic-tool/keys.json` (or AppData on Windows) for future use.
+    </Note>
+  </Step>
+
+  <Step title="Decryption Process Explained">
+    The decryption engine (`crypto_manager.py:129-192`) performs these steps:
+    
+    1. **Key Derivation**: Derives AES key using HMAC-SHA256
+    2. **Offset Detection**: Tries known offsets (67, 191, 8 bytes for IV)
+    3. **GCM Decryption**: Uses AES-GCM with authentication
+    4. **Decompression**: Applies zlib decompression to the decrypted data
+    5. **Validation**: Verifies SQLite database header
+    
+    If decryption fails, the tool performs brute-force offset scanning (0-190 byte range).
+  </Step>
+</Steps>
+
+## Step 5: View Decrypted Database
+
+<Steps>
+  <Step title="Open Database Viewer">
+    Select option **4** (View Decrypted Database) from the main menu:
+    
+    ```
+    Enter choice: 4
+    
+    Decrypted Databases
+    ┌───┬──────────┬────────────────────────────────────────┐
+    │ # │ Type     │ File                                   │
+    ├───┼──────────┼────────────────────────────────────────┤
+    │ 1 │ WhatsApp │ msgstore.db.crypt15.decrypted.db       │
+    └───┴──────────┴────────────────────────────────────────┘
+    
+    [*] Loading database...
+    ```
+    
+    The tool automatically connects to the decrypted SQLite database.
+  </Step>
+
+  <Step title="Browse Chat List">
+    The viewer displays all chats sorted by last activity:
+    
+    ```
+    DB: msgstore.db.crypt15.decrypted.db | Messages: 12,847
+    
+    Chats (Page 1)
+    ┌───┬──────────────────────┬──────────────────────────┬─────────────────┐
+    │ # │ Last Active          │ JID                      │ Subject         │
+    ├───┼──────────────────────┼──────────────────────────┼─────────────────┤
+    │ 1 │ 2024-03-05 14:32:18  │ 1234567890@s.whatsapp... │ Mom             │
+    │ 2 │ 2024-03-05 11:15:42  │ 9876543210@s.whatsapp... │ Work Team       │
+    │ 3 │ 2024-03-04 22:08:33  │ 5551234567@s.whatsapp... │ John Smith      │
+    │ 4 │ 2024-03-04 18:45:12  │ 1239874560-1616161616... │ Family Group    │
+    └───┴──────────────────────┴──────────────────────────┴─────────────────┘
+    
+    Showing 20 chats. Total: 156
+    
+    Option [N=Next, P=Prev, B=Back, #=View Chat]:
+    ```
+  </Step>
+
+  <Step title="View Messages in a Chat">
+    Enter a chat number to view messages. Example - enter **1**:
+    
+    ```
+    Chat: Mom (1234567890@s.whatsapp.net)
+    Showing last 50 messages...
+    ------------------------------------------------------------
+    
+    [2024-03-05 14:32:18] Mom
+    📍 Location shared
+    
+    [2024-03-05 14:30:45] You
+    On my way home now
+    
+    [2024-03-05 12:15:22] Mom
+    Don't forget to pick up groceries
+    
+    [2024-03-05 11:08:33] You
+    👍
+    
+    [2024-03-04 18:22:11] Mom
+    📎 IMG-20240304-WA0023.jpg
+    
+    ------------------------------------------------------------
+    Options: [M]ore, [A]ll, [B]ack [b]:
+    ```
+    
+    - **M** - Load 50 more messages
+    - **A** - Load all messages in the chat
+    - **B** - Return to chat list
+  </Step>
+</Steps>
+
+## Step 6: Export Chats
+
+Export conversations to readable formats:
+
+<Steps>
+  <Step title="Open Export Menu">
+    Select option **5** (Export Chats) from the main menu:
+    
+    ```
+    Enter choice: 5
+    
+    Select Database to Export From
+    ┌───┬──────────┬────────────────────────────────────────┐
+    │ # │ Type     │ File                                   │
+    ├───┼──────────┼────────────────────────────────────────┤
+    │ 1 │ WhatsApp │ msgstore.db.crypt15.decrypted.db       │
+    └───┴──────────┴────────────────────────────────────────┘
+    
+    Select DB # (or Enter for current loaded): 1
+    ```
+  </Step>
+
+  <Step title="Choose Export Scope">
+    Select what to export:
+    
+    ```
+    Export Options
+    1. All Chats
+    2. Single Chat
+    3. Back
+    
+    Choice: 1
+    ```
+    
+    - **All Chats** - Exports every conversation (can take several minutes)
+    - **Single Chat** - Export a specific conversation by name or number
+  </Step>
+
+  <Step title="Select Export Format">
+    Choose output format:
+    
+    ```
+    Format
+    1. HTML
+    2. CSV
+    3. JSON
+    4. TXT
+    5. All Formats
+    6. Back
+    
+    Choice: 1
+    ```
+    
+    Format descriptions:
+    - **HTML** - Rich formatted view with clickable media links
+    - **CSV** - Spreadsheet-compatible (Excel, Google Sheets)
+    - **JSON** - Machine-readable structured data
+    - **TXT** - Plain text transcript
+    - **All Formats** - Exports to all four formats simultaneously
+  </Step>
+
+  <Step title="Export Complete">
+    The tool exports and opens the output folder:
+    
+    ```
+    [*] Exporting...
+    [✓] Exported to backups/ABCD1234EFGH/user_0/messenger/exports
+    ```
+    
+    On Windows, the exports folder opens automatically in File Explorer.
+    
+    <Info>
+      HTML exports include relative links to media files if you dumped media in Step 3.
+    </Info>
+  </Step>
+</Steps>
+
+## Example Output Files
+
+<CodeGroup>
+```html HTML Export Sample
+<!DOCTYPE html>
+<html>
+<head>
+    <title>WhatsApp Chat: Mom</title>
+    <style>
+        .message { padding: 10px; margin: 5px; border-radius: 8px; }
+        .sent { background: #dcf8c6; text-align: right; }
+        .received { background: #ffffff; }
+    </style>
+</head>
+<body>
+    <h1>Chat with Mom (1234567890@s.whatsapp.net)</h1>
+    
+    <div class="message received">
+        <strong>Mom</strong> - 2024-03-05 14:32:18<br>
+        📍 <a href="https://maps.google.com/?q=40.7128,-74.0060">Location</a>
+    </div>
+    
+    <div class="message sent">
+        <strong>You</strong> - 2024-03-05 14:30:45<br>
+        On my way home now
+    </div>
+    
+    <!-- More messages... -->
+</body>
+</html>
+```
+
+```csv CSV Export Sample
+Timestamp,Sender,Message,Media Type,Media Path
+2024-03-05 14:32:18,1234567890@s.whatsapp.net,Location shared,location,
+2024-03-05 14:30:45,me,On my way home now,,
+2024-03-05 12:15:22,1234567890@s.whatsapp.net,Don't forget to pick up groceries,,
+2024-03-05 11:08:33,me,👍,,
+2024-03-04 18:22:11,1234567890@s.whatsapp.net,,image,Media/WhatsApp Images/IMG-20240304-WA0023.jpg
+```
+
+```json JSON Export Sample
+{
+  "chat_info": {
+    "jid": "1234567890@s.whatsapp.net",
+    "subject": "Mom",
+    "total_messages": 847
+  },
+  "messages": [
+    {
+      "timestamp": "2024-03-05 14:32:18",
+      "sender": "1234567890@s.whatsapp.net",
+      "message": "Location shared",
+      "media_type": "location",
+      "latitude": 40.7128,
+      "longitude": -74.0060
+    },
+    {
+      "timestamp": "2024-03-05 14:30:45",
+      "sender": "me",
+      "message": "On my way home now",
+      "media_type": null
+    }
+  ]
+}
+```
+
+```txt Plain Text Export Sample
+Chat with Mom (1234567890@s.whatsapp.net)
+Exported: 2024-03-05 15:00:00
+Total Messages: 847
+
+========================================
+
+[2024-03-05 14:32:18] Mom
+Location shared
+
+[2024-03-05 14:30:45] You
+On my way home now
+
+[2024-03-05 12:15:22] Mom
+Don't forget to pick up groceries
+
+[2024-03-05 11:08:33] You
+👍
+
+[2024-03-04 18:22:11] Mom
+[Image: IMG-20240304-WA0023.jpg]
+```
+</CodeGroup>
+
+## Understanding the File Structure
+
+After completing the workflow, your directory structure looks like this:
+
+```
+whatsapp-forensic-tool/
+├── backups/
+│   └── ABCD1234EFGH/              # Device serial
+│       └── user_0/                # User ID
+│           └── messenger/         # WhatsApp type
+│               ├── msgstore.db.crypt15
+│               ├── msgstore.db.crypt15.decrypted.db
+│               ├── Media/         # If dumped
+│               │   ├── WhatsApp Images/
+│               │   ├── WhatsApp Video/
+│               │   ├── WhatsApp Audio/
+│               │   └── WhatsApp Documents/
+│               └── exports/       # Exported chats
+│                   ├── chat_1234567890@s.whatsapp.net.html
+│                   ├── chat_1234567890@s.whatsapp.net.csv
+│                   └── all_chats.html
+├── adb/                           # ADB platform tools
+│   └── platform-tools/
+├── venv/                          # Python virtual environment
+├── core/                          # Application modules
+└── main.py                        # Entry point
+```
+
+## Troubleshooting Common Issues
 
 <AccordionGroup>
-  <Accordion icon="copy" title="Clone your docs locally">
-    During the onboarding process, you created a GitHub repository with your docs content if you didn't already have one. You can find a link to this repository in your [dashboard](https://dashboard.mintlify.com).
-    
-    To clone the repository locally so that you can make and preview changes to your docs, follow the [Cloning a repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository) guide in the GitHub docs.
+  <Accordion title="No devices found after scanning">
+    **Solutions:**
+    1. Check USB cable is properly connected
+    2. Verify USB Debugging is enabled: Settings → Developer Options → USB Debugging
+    3. Try authorizing the computer again (tap "Allow" on device prompt)
+    4. Run `adb devices` manually from `adb/platform-tools/` to check ADB connectivity
   </Accordion>
-  <Accordion icon="rectangle-terminal" title="Start the preview server">
-    1. Install the Mintlify CLI: `npm i -g mint`
-    2. Navigate to your docs directory and run: `mint dev`
-    3. Open `http://localhost:3000` to see your docs live!
+  
+  <Accordion title="No backup files found">
+    **Possible causes:**
+    1. WhatsApp hasn't created a backup yet
+    2. Backups are stored in scoped storage (Android 11+)
+    3. Device uses encrypted backups stored in cloud only
     
-    <Tip>Your preview updates automatically as you edit files.</Tip>
+    **Solution:** In WhatsApp, go to Settings → Chats → Chat Backup and create a local backup manually.
+  </Accordion>
+  
+  <Accordion title="Decryption failed with correct key">
+    **Reasons:**
+    1. Wrong key for this specific backup
+    2. Corrupted backup file
+    3. Unsupported crypt format
+    
+    **Solution:** Try an older backup file (option 2 or 3 in the list) or verify the key was copied correctly.
+  </Accordion>
+  
+  <Accordion title="Database viewer shows empty chats">
+    **Reasons:**
+    1. Database schema version incompatibility
+    2. Incomplete decryption
+    3. WhatsApp database format changed
+    
+    **Solution:** Check that the decrypted file size matches the original encrypted file size (within 10%). If significantly smaller, decryption may have failed partially.
+  </Accordion>
+  
+  <Accordion title="Media files not accessible in exports">
+    **Solution:** Dump media files in Step 3 by selecting "y" when prompted "Include Media?". HTML exports use relative paths to `Media/` folders.
   </Accordion>
 </AccordionGroup>
 
-### Step 2: Deploy your changes
+## Next Steps
 
-<AccordionGroup>
-  <Accordion icon="github" title="Install our GitHub app">
-    Install the Mintlify GitHub app from your [dashboard](https://dashboard.mintlify.com/settings/organization/github-app).
-    
-    Our GitHub app automatically deploys your changes to your docs site, so you don't need to manage deployments yourself.
-</Accordion>
-<Accordion icon="palette" title="Update your site name and colors">
-    For a first change, let's update the name and colors of your docs site.
-
-    1. Open `docs.json` in your editor.
-    2. Change the `"name"` field to your project name.
-    3. Update the `"colors"` to match your brand.
-    4. Save and see your changes instantly at `http://localhost:3000`.
-
-    <Tip>Try changing the primary color to see an immediate difference!</Tip>
-  </Accordion>
-</AccordionGroup>
-
-### Step 3: Go live
-
-<Accordion icon="rocket" title="Publish your docs">
-  1. Commit and push your changes.
-  2. Your docs will update and be live in moments!
-</Accordion>
-
-## Next steps
-
-Now that you have your docs running, explore these key features:
+Now that you've completed your first extraction, explore advanced features:
 
 <CardGroup cols={2}>
-
-<Card title="Write Content" icon="pen-to-square" href="/essentials/markdown">
-  Learn MDX syntax and start writing your documentation.
-</Card>
-
-<Card title="Customize style" icon="palette" href="/essentials/settings">
-  Make your docs match your brand perfectly.
-</Card>
-
-<Card title="Add code examples" icon="square-code" href="/essentials/code">
-  Include syntax-highlighted code blocks.
-</Card>
-
-<Card title="API documentation" icon="code" href="/api-reference/introduction">
-  Auto-generate API docs from OpenAPI specs.
-</Card>
-
+  <Card title="Decrypt Multiple Backups" icon="layer-group">
+    Process historical backups to view deleted messages or track conversation changes over time
+  </Card>
+  <Card title="Compare Backups" icon="code-compare">
+    Use the JSON export format to diff backup files and identify deleted or modified messages
+  </Card>
+  <Card title="Termux Mode" icon="mobile">
+    Deploy to Android for direct device analysis without ADB limitations
+  </Card>
+  <Card title="Automation Scripts" icon="robot">
+    Use the core modules programmatically to automate batch processing of multiple devices
+  </Card>
 </CardGroup>
 
+## Tips for Forensic Analysis
+
 <Note>
-  **Need help?** See our [full documentation](https://mintlify.com/docs) or join our [community](https://mintlify.com/community).
+  **Best Practices:**
+  
+  1. **Preserve originals**: Always keep the original encrypted backups unmodified
+  2. **Document everything**: Note device serial, extraction date, and key source
+  3. **Hash verification**: Use SHA256 checksums to verify file integrity
+  4. **Chain of custody**: Maintain proper evidence handling procedures
+  5. **Export immediately**: Export to multiple formats immediately after successful decryption
 </Note>
+
+You've successfully completed your first WhatsApp forensic extraction. The tool is now ready for regular use in your forensic workflow.

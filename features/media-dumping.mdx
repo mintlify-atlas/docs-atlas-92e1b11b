@@ -1,0 +1,498 @@
+---
+title: 'Media Dumping'
+description: 'Extract WhatsApp media files including images, videos, audio, and documents'
+icon: 'photo-film'
+---
+
+## Overview
+
+Media dumping extracts all WhatsApp media files from the device's storage, preserving the directory structure for proper organization and HTML export compatibility. This includes images, videos, voice messages, audio files, documents, and other attachments.
+
+## Media Extraction Workflow
+
+Media extraction is integrated into the backup dumping process:
+
+<Steps>
+  <Step title="User Confirmation">
+    User chooses whether to include media during backup dump
+  </Step>
+  <Step title="Media Folder Discovery">
+    Locates WhatsApp Media directories for each user/package
+  </Step>
+  <Step title="File Counting">
+    Counts total files for progress tracking
+  </Step>
+  <Step title="Recursive Copy">
+    Pulls all files with progress indication
+  </Step>
+  <Step title="Structure Preservation">
+    Maintains original directory hierarchy
+  </Step>
+</Steps>
+
+## Triggering Media Extraction
+
+During backup dumping in `main.py:299`:
+
+```python
+mode = ui.ask("Include Media? (y/n)", default="n").lower()
+include_media = mode == 'y'
+
+if include_media:
+    ui.print_info("Scanning for Media folders...")
+    processed_media = set()
+    for item in items_to_dump:
+        key = f"{item['user']}_{item['pkg']}"
+        if key in processed_media: continue
+        
+        media_path = self.device_manager.find_media(
+            self.selected_device,
+            item['user'],
+            item['pkg']
+        )
+        if media_path:
+            ui.print_info(f"Dumping Media for {item['pkg']}...")
+            local_dir = os.path.join(
+                "backups",
+                self.selected_device,
+                f"user_{item['user']}",
+                item['type'],
+                "Media"
+            )
+            
+            if not self.device_manager.dump_media_with_progress(
+                self.selected_device,
+                media_path,
+                local_dir
+            ):
+                ui.print_warning(f"Media dump incomplete for {item['pkg']}")
+        processed_media.add(key)
+```
+
+<Warning>
+  Media dumping can take significant time (30+ minutes) for users with extensive media libraries (10,000+ files).
+</Warning>
+
+## WhatsApp Media Folder Structure
+
+WhatsApp organizes media into category-specific subdirectories:
+
+### Standard Media Paths
+
+**WhatsApp Messenger:**
+```
+/storage/emulated/{user_id}/WhatsApp/Media/
+├── WhatsApp Images/
+├── WhatsApp Video/
+├── WhatsApp Audio/
+├── WhatsApp Voice Notes/
+├── WhatsApp Documents/
+├── WhatsApp Animated Gifs/
+├── WhatsApp Stickers/
+└── WhatsApp Profile Photos/
+```
+
+**WhatsApp Business:**
+```
+/storage/emulated/{user_id}/WhatsApp Business/Media/
+└── (same structure as above)
+```
+
+### Android 11+ Media Paths
+
+```
+/storage/emulated/{user_id}/Android/media/com.whatsapp/WhatsApp/Media/
+/storage/emulated/{user_id}/Android/media/com.whatsapp.w4b/WhatsApp Business/Media/
+```
+
+<Info>
+  Android 11 introduced scoped storage, moving app media to the `Android/media/` directory.
+</Info>
+
+## Media Discovery
+
+The `find_media()` method in `core/device_manager.py:215` locates media folders:
+
+```python
+def find_media(self, device_id: str, user_id: str, package: str) -> str:
+    base = f"/storage/emulated/{user_id}/"
+    paths = []
+    if package == 'com.whatsapp':
+        paths = [
+            base + "WhatsApp/Media",
+            base + "Android/media/com.whatsapp/WhatsApp/Media"
+        ]
+    elif package == 'com.whatsapp.w4b':
+        paths = [
+            base + "WhatsApp Business/Media",
+            base + "Android/media/com.whatsapp.w4b/WhatsApp Business/Media"
+        ]
+        
+    for path in paths:
+        code, stdout, stderr = self.run_command(
+            ['-s', device_id, 'shell', 'ls', '-d', f'"{path}"']
+        )
+        if code == 0 and "No such file" not in stdout and "No such file" not in stderr:
+            return path
+    return ""
+```
+
+<Check>
+  The tool checks both legacy and modern paths, returning the first valid location found.
+</Check>
+
+## dump_media_with_progress() Implementation
+
+The core extraction method in `core/device_manager.py:254`:
+
+### File Counting
+
+```python
+def dump_media_with_progress(self, device_id: str, remote_path: str, local_dir: str):
+    from tqdm import tqdm
+    print_info("Counting files...", verbose=True)
+    
+    full_cmd = f'{self.adb_executable} -s {device_id} shell "find \'{remote_path}\' -type f | wc -l"'
+    
+    try:
+        process = subprocess.run(
+            full_cmd,
+            shell=True,
+            capture_output=True,
+            text=True
+        )
+        total_files = int(process.stdout.strip()) if process.returncode == 0 else 0
+    except:
+        total_files = 0
+    
+    print_info(f"Total files: {total_files}")
+```
+
+<Info>
+  Using `find -type f | wc -l` provides an accurate file count for progress tracking.
+</Info>
+
+### Recursive Pull with Progress Bar
+
+```python
+if not os.path.exists(local_dir):
+    os.makedirs(local_dir)
+
+cmd_pull = [self.adb_executable, '-s', device_id, 'pull', f"{remote_path}/.", local_dir]
+try:
+    process = subprocess.Popen(
+        cmd_pull,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        universal_newlines=True,
+        encoding='utf-8',
+        errors='replace'
+    )
+    pbar = tqdm(total=total_files, unit="file", desc="Pulling Media")
+    for line in process.stdout:
+        line = line.strip()
+        if line.startswith("[") or "->" in line or ("/" in line and ":" not in line):
+            pbar.update(1)
+    process.wait()
+    pbar.close()
+    return process.returncode == 0
+except Exception as e:
+    print_error(f"Media dump failed: {e}")
+    return False
+```
+
+<Check>
+  The progress bar updates by parsing ADB's output lines that indicate file transfers.
+</Check>
+
+## Media Types Extracted
+
+<CardGroup cols={2}>
+  <Card title="Images" icon="image">
+    JPEG, PNG, WebP photos from chats and status
+  </Card>
+  <Card title="Videos" icon="video">
+    MP4, 3GP video messages and status videos
+  </Card>
+  <Card title="Audio" icon="music">
+    MP3, AAC, OGG audio files shared in chats
+  </Card>
+  <Card title="Voice Notes" icon="microphone">
+    Opus-encoded voice messages
+  </Card>
+  <Card title="Documents" icon="file">
+    PDF, DOC, XLS, ZIP and other file types
+  </Card>
+  <Card title="GIFs" icon="gif">
+    Animated GIF files
+  </Card>
+  <Card title="Stickers" icon="face-smile">
+    WebP sticker files
+  </Card>
+  <Card title="Profile Photos" icon="user-circle">
+    Contact and group profile pictures
+  </Card>
+</CardGroup>
+
+## Directory Structure Preservation
+
+The tool maintains WhatsApp's original structure:
+
+```
+backups/{device_serial}/user_{user_id}/{type}/Media/
+├── WhatsApp Images/
+│   ├── IMG-20240301-WA0001.jpg
+│   ├── IMG-20240301-WA0002.jpg
+│   └── Sent/
+│       └── IMG-20240301-WA0003.jpg
+├── WhatsApp Video/
+│   ├── VID-20240301-WA0001.mp4
+│   └── Sent/
+├── WhatsApp Voice Notes/
+│   └── PTT-20240301-WA0001.opus
+├── WhatsApp Audio/
+│   └── AUD-20240301-WA0001.mp3
+├── WhatsApp Documents/
+│   └── DOC-20240301-WA0001.pdf
+└── WhatsApp Profile Photos/
+    └── ...
+```
+
+<Info>
+  Preserving the structure ensures media links in HTML exports work correctly.
+</Info>
+
+## Media Linking to Chat Exports
+
+HTML chat exports reference media using relative paths:
+
+```
+backups/{device}/user_0/messenger/
+├── exports/
+│   └── exported_chats.html  → References ../Media/...
+└── Media/
+    └── WhatsApp Images/
+        └── IMG-20240301-WA0001.jpg
+```
+
+### HTML Media Embed Code
+
+From `core/viewer.py:666`:
+
+```python
+if media_type.startswith('image/'):
+    media_html = f'<div class="media-container"><a href="{rel_path}" target="_blank"><img src="{rel_path}" alt="Image" loading="lazy"></a></div>'
+elif media_type.startswith('video/'):
+    media_html = f'<div class="media-container"><video controls><source src="{rel_path}" type="{media_type}"></video></div>'
+elif media_type.startswith('audio/'):
+    media_html = f'<div class="media-container"><audio controls><source src="{rel_path}" type="{media_type}"></audio></div>'
+```
+
+<Check>
+  The relative path `../Media/WhatsApp Images/...` allows the HTML file to locate media regardless of where the backup folder is moved.
+</Check>
+
+## Storage Requirements
+
+Media extraction can require substantial disk space:
+
+<CardGroup cols={3}>
+  <Card title="Light User" icon="1">
+    500MB - 2GB
+    <br/>Few photos and videos
+  </Card>
+  <Card title="Average User" icon="2">
+    2GB - 10GB
+    <br/>Regular media sharing
+  </Card>
+  <Card title="Heavy User" icon="3">
+    10GB - 50GB+
+    <br/>Extensive video and photo collection
+  </Card>
+</CardGroup>
+
+<Warning>
+  Ensure sufficient free disk space before initiating media extraction. The tool does not check available space beforehand.
+</Warning>
+
+## Deduplication Handling
+
+The tool prevents duplicate media extraction per user/package:
+
+```python
+processed_media = set()
+for item in items_to_dump:
+    key = f"{item['user']}_{item['pkg']}"
+    if key in processed_media:
+        continue
+    
+    # Extract media...
+    
+    processed_media.add(key)
+```
+
+<Info>
+  This ensures media is only downloaded once even when multiple database backups are selected from the same user/package.
+</Info>
+
+## Performance Considerations
+
+### Transfer Speed Factors
+
+- **USB 2.0**: ~10-30 MB/s (slower)
+- **USB 3.0**: ~50-100 MB/s (recommended)
+- **File Size**: Many small files are slower than fewer large files
+- **Device Performance**: Older devices may have slower storage access
+
+### Optimization Tips
+
+<Steps>
+  <Step title="Use USB 3.0">
+    Connect via USB 3.0 port and cable for maximum speed
+  </Step>
+  <Step title="Disable MTP">
+    Close file explorer windows accessing the device
+  </Step>
+  <Step title="Skip Media Initially">
+    Extract databases first, then media separately if needed
+  </Step>
+  <Step title="Avoid Interruptions">
+    Ensure device stays connected and screen doesn't lock
+  </Step>
+</Steps>
+
+## Incomplete Extraction Handling
+
+The method returns a boolean indicating success:
+
+```python
+if not self.device_manager.dump_media_with_progress(
+    self.selected_device,
+    media_path,
+    local_dir
+):
+    ui.print_warning(f"Media dump incomplete for {item['pkg']}")
+```
+
+<Note>
+  Incomplete extraction may occur due to:
+  - Device disconnection
+  - Insufficient permissions for certain files
+  - Storage space exhaustion
+  - User cancellation (Ctrl+C)
+</Note>
+
+## Permissions and Access
+
+### Required Permissions
+
+<CardGroup cols={2}>
+  <Card title="Read Storage" icon="folder-open">
+    ADB must have access to storage paths
+  </Card>
+  <Card title="USB Debugging" icon="bug">
+    Must remain enabled during extraction
+  </Card>
+  <Card title="Screen Unlocked" icon="lock-open">
+    Some devices require screen to stay unlocked
+  </Card>
+  <Card title="No Password Prompt" icon="shield-xmark">
+    File access shouldn't require additional authorization
+  </Card>
+</CardGroup>
+
+### Android 11+ Considerations
+
+```python
+# Tool checks both paths automatically
+paths = [
+    base + "WhatsApp/Media",  # Legacy
+    base + "Android/media/com.whatsapp/WhatsApp/Media"  # Android 11+
+]
+```
+
+<Info>
+  On Android 11+, WhatsApp must have "All files access" permission for the legacy path to be readable.
+</Info>
+
+## Media File Naming Convention
+
+WhatsApp uses standardized naming:
+
+- **Images**: `IMG-YYYYMMDD-WA####.jpg`
+- **Videos**: `VID-YYYYMMDD-WA####.mp4`
+- **Audio**: `AUD-YYYYMMDD-WA####.mp3`
+- **Voice**: `PTT-YYYYMMDD-WA####.opus`
+- **Documents**: `DOC-YYYYMMDD-WA####.{ext}`
+
+Where:
+- `YYYYMMDD`: Date received/sent
+- `WA####`: Sequential WhatsApp number
+- `{ext}`: Original file extension
+
+<Check>
+  Files are automatically organized by type through subdirectories, making manual sorting unnecessary.
+</Check>
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="No media folder found">
+    - Ensure WhatsApp has been used to send/receive media
+    - Check that storage permissions are granted to WhatsApp
+    - Media may be stored on SD card (not supported via ADB)
+    - Try manual backup creation in WhatsApp to populate folders
+  </Accordion>
+  
+  <Accordion title="Permission denied errors">
+    - Grant "Files and media" permission to WhatsApp in Android Settings
+    - On Android 11+, grant "All files access" in Special app access
+    - Some manufacturers restrict ADB access to certain paths
+    - Root access may be required on heavily locked devices
+  </Accordion>
+  
+  <Accordion title="Extraction stuck or very slow">
+    - Check USB cable quality (use official or high-quality cable)
+    - Switch to a different USB port (preferably USB 3.0)
+    - Disable USB selective suspend in Windows power settings
+    - Restart ADB server: `adb kill-server && adb start-server`
+    - Consider extracting smaller batches or specific folders only
+  </Accordion>
+  
+  <Accordion title="Media not appearing in HTML export">
+    - Verify Media folder exists alongside exports folder
+    - Check that database references match actual filenames
+    - Some media may have been deleted from device but references remain
+    - Ensure HTML file and Media folder maintain relative structure
+  </Accordion>
+</AccordionGroup>
+
+## Manual Selective Extraction
+
+For advanced users who need only specific media types:
+
+```bash
+# Extract only images
+adb -s {device_serial} pull /storage/emulated/0/WhatsApp/Media/WhatsApp\ Images ./local_folder/
+
+# Extract only videos
+adb -s {device_serial} pull /storage/emulated/0/WhatsApp/Media/WhatsApp\ Video ./local_folder/
+
+# Extract documents only
+adb -s {device_serial} pull /storage/emulated/0/WhatsApp/Media/WhatsApp\ Documents ./local_folder/
+```
+
+<Warning>
+  Manual extraction requires proper escaping of spaces and may not preserve the tool's expected directory structure.
+</Warning>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Chat Export" icon="file-export" href="/features/chat-export">
+    Export chats with embedded media links
+  </Card>
+  <Card title="Database Viewer" icon="database" href="/features/database-viewer">
+    View which media files are referenced in messages
+  </Card>
+</CardGroup>

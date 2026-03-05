@@ -1,0 +1,692 @@
+---
+title: 'Android/Termux Guide'
+description: 'Run WhatsApp Forensic Tool directly on Android using Termux'
+icon: 'android'
+---
+
+## Overview
+
+The WhatsApp Forensic Tool can run **directly on your Android device** using **Termux**, eliminating the need for a PC and ADB. This mode provides superior access to internal storage and system files compared to ADB-based extraction.
+
+## What is Termux?
+
+Termux is a powerful terminal emulator and Linux environment for Android that provides:
+
+- **No Root Required**: Works on unrooted devices
+- **Real Linux**: Full bash shell with package management
+- **Python Support**: Run Python scripts natively
+- **Storage Access**: Direct filesystem access with proper permissions
+- **Offline Operation**: No PC or internet required after setup
+
+<Info>
+Termux allows the forensic tool to access Android's internal storage directly, bypassing ADB limitations.
+</Info>
+
+## Why Use Termux Mode?
+
+### Advantages Over PC/ADB Mode
+
+<CardGroup cols={2}>
+  <Card title="Direct Storage Access" icon="folder-open">
+    Access all WhatsApp backup locations including:
+    - `/sdcard/WhatsApp/Databases`
+    - `/sdcard/Android/media/com.whatsapp`
+    - Internal app directories (with permissions)
+  </Card>
+
+  <Card title="No PC Required" icon="mobile">
+    Perform forensic analysis entirely on the target device.
+  </Card>
+
+  <Card title="Better Performance" icon="gauge-high">
+    No USB transfer overhead—direct filesystem operations.
+  </Card>
+
+  <Card title="Portable" icon="suitcase">
+    Carry the tool on your device for field analysis.
+  </Card>
+</CardGroup>
+
+### When to Use Termux Mode
+
+- **No PC available**: On-site forensic analysis
+- **ADB issues**: USB driver problems or ADB failures
+- **Android 11+**: Scoped storage restrictions limiting ADB access
+- **Root analysis**: Combine with root access for deeper inspection
+- **Privacy**: All operations local to device
+
+## Installation
+
+### Method 1: Deploy from PC (Recommended)
+
+The easiest way is to deploy from your PC using the tool's built-in deployment feature.
+
+<Steps>
+  <Step title="Install Termux on Android">
+    **IMPORTANT**: Install Termux from **F-Droid**, NOT Google Play Store.
+    
+    <Warning>
+    The Play Store version is outdated and incompatible. Use F-Droid only.
+    </Warning>
+    
+    1. Download F-Droid: [f-droid.org](https://f-droid.org/)
+    2. Install F-Droid APK
+    3. Open F-Droid → Search "Termux"
+    4. Install **Termux** and **Termux:API** (optional)
+  </Step>
+
+  <Step title="Enable USB Debugging on Android">
+    On your Android device:
+    1. Settings → About Phone
+    2. Tap "Build Number" 7 times (enables Developer Options)
+    3. Settings → Developer Options
+    4. Enable "USB Debugging"
+    5. Connect device to PC via USB
+    6. Authorize computer when prompted
+  </Step>
+
+  <Step title="Run Tool on PC">
+    On your PC:
+    ```bash
+    # Windows
+    start.bat
+    
+    # Linux/macOS
+    bash start.sh
+    ```
+  </Step>
+
+  <Step title="Select 'Deploy to Termux'">
+    From the main menu:
+    - Select option **6** (or equivalent): "Deploy to Termux (Downloads)"
+    - Wait for file transfer to complete
+    
+    Files are pushed to: `/sdcard/Download/whatsapp-forensic-tool/`
+  </Step>
+
+  <Step title="Run in Termux App">
+    **CRITICAL**: Open the **Termux app** on your phone (not `adb shell`)!
+    
+    In Termux terminal, type:
+    ```bash
+    cp -r /sdcard/Download/whatsapp-forensic-tool $HOME
+    cd $HOME/whatsapp-forensic-tool
+    bash start.sh
+    ```
+    
+    <Warning>
+    Do NOT run these commands in `adb shell`. You must use the Termux app UI.
+    </Warning>
+  </Step>
+</Steps>
+
+### Method 2: Manual Installation on Termux
+
+If you don't have PC access:
+
+<Steps>
+  <Step title="Install Termux">
+    Download from F-Droid as described above.
+  </Step>
+
+  <Step title="Setup Storage Access">
+    In Termux:
+    ```bash
+    termux-setup-storage
+    ```
+    
+    Grant storage permissions when prompted.
+  </Step>
+
+  <Step title="Install Git and Python">
+    ```bash
+    pkg update && pkg upgrade -y
+    pkg install -y git python
+    ```
+  </Step>
+
+  <Step title="Clone Repository">
+    ```bash
+    cd ~
+    git clone https://github.com/cedroid/whatsapp-forensic-tool.git
+    cd whatsapp-forensic-tool
+    ```
+  </Step>
+
+  <Step title="Run Launcher">
+    ```bash
+    bash start.sh
+    ```
+    
+    The script auto-detects Termux environment and skips ADB setup.
+  </Step>
+</Steps>
+
+## How Termux Mode Works
+
+### Environment Detection
+
+The tool automatically detects Termux environment:
+
+```python
+# From main.py
+IS_TERMUX = False
+if os.environ.get("PREFIX") and "com.termux" in os.environ.get("PREFIX"):
+    IS_TERMUX = True
+
+if IS_TERMUX:
+    from core.termux_manager import TermuxManager
+    ui.update_status("mode", "Termux")
+else:
+    from core.device_manager import DeviceManager
+    ui.update_status("mode", "ADB")
+```
+
+### Launcher Behavior in Termux
+
+The `start.sh` script has special Termux detection:
+
+```bash
+# Detect Termux environment
+if [[ -n "$PREFIX" && "$PREFIX" == *"com.termux"* ]]; then
+  echo "[*] Detected Termux environment"
+  
+  # Auto-move from Downloads if running there
+  if [[ "$PWD" == *"/storage/emulated/0/Download"* ]]; then
+    TARGET_DIR="$HOME/whatsapp-forensic-tool"
+    mkdir -p "$TARGET_DIR"
+    cp -r ./* "$TARGET_DIR/"
+    echo "[*] Moved to ~/whatsapp-forensic-tool"
+    exit 0
+  fi
+  
+  # Setup storage access
+  if [ ! -d "$HOME/storage" ]; then
+    termux-setup-storage
+  fi
+  
+  # Install Python if missing
+  if ! command -v python &> /dev/null; then
+    pkg update -y && pkg install -y python
+  fi
+  
+  # Install dependencies and run
+  pip install -r requirements.txt
+  python main.py
+fi
+```
+
+<Info>
+If you run `start.sh` from Downloads, it automatically moves itself to `$HOME` for proper operation.
+</Info>
+
+## Storage Access & Permissions
+
+### Understanding Termux Storage
+
+Termux has its own isolated filesystem:
+
+- **Termux Home**: `$HOME` → `/data/data/com.termux/files/home`
+- **Shared Storage**: `~/storage/` → Symlinks to Android storage
+- **SD Card**: `~/storage/shared` → `/sdcard/`
+
+### Setting Up Storage Access
+
+<Steps>
+  <Step title="Run Storage Setup">
+    ```bash
+    termux-setup-storage
+    ```
+    
+    This creates `~/storage/` with symlinks:
+    - `~/storage/shared` → `/sdcard`
+    - `~/storage/downloads` → `/sdcard/Download`
+    - `~/storage/dcim` → `/sdcard/DCIM`
+    - etc.
+  </Step>
+
+  <Step title="Grant Permissions">
+    Android will prompt for storage permissions. Tap "Allow".
+    
+    <Warning>
+    Without storage permissions, the tool cannot access WhatsApp backups.
+    </Warning>
+  </Step>
+
+  <Step title="Verify Access">
+    ```bash
+    ls ~/storage/shared/WhatsApp/Databases
+    ```
+    
+    Should list `msgstore.db.cryptXX` files.
+  </Step>
+</Steps>
+
+### WhatsApp Backup Locations Accessible in Termux
+
+The tool searches these paths:
+
+```python
+# From core/termux_manager.py
+base_paths = [
+    "/sdcard",
+    os.path.join(home, "storage/shared"),
+    os.path.join(home, "storage/external-1")
+]
+
+search_paths = [
+    "WhatsApp/Databases",
+    "Android/media/com.whatsapp/WhatsApp/Databases",
+    "WhatsApp Business/Databases",
+    "Android/media/com.whatsapp.w4b/WhatsApp Business/Databases"
+]
+```
+
+## Using the Tool in Termux
+
+### First Run
+
+```bash
+cd ~/whatsapp-forensic-tool
+bash start.sh
+```
+
+You'll see:
+```
+===========================================
+  WhatsApp Backup Forensic Tool Launcher
+===========================================
+[*] Detected Termux environment
+[*] Installing Python dependencies...
+[*] Starting Application...
+```
+
+### Main Menu Differences
+
+In Termux mode:
+
+- **Scan Devices**: Shows "localhost (Termux)" instead of ADB devices
+- **Dump Backups**: Directly accesses filesystem (no ADB pull)
+- **Deploy to Termux**: Option hidden (already running in Termux)
+- **Device Info**: Limited to Termux environment info
+
+### Example Workflow
+
+<Steps>
+  <Step title="Launch Tool">
+    ```bash
+    cd ~/whatsapp-forensic-tool
+    python main.py
+    ```
+  </Step>
+
+  <Step title="Scan Device">
+    Select option **1**: "Scan Connected Devices"
+    
+    Shows:
+    ```
+    Device: localhost (Termux)
+    Model: Unknown
+    Storage: 64 GB
+    ```
+  </Step>
+
+  <Step title="Dump Backups">
+    Select option **2**: "Dump Backups from Device"
+    
+    Tool automatically:
+    - Scans `/sdcard/WhatsApp/Databases`
+    - Finds `msgstore.db.crypt14/15` files
+    - Copies to `~/whatsapp-forensic-tool/backups/localhost/`
+  </Step>
+
+  <Step title="Decrypt & Analyze">
+    Follow normal workflow:
+    - Option **3**: Decrypt Backup (enter 64-char key)
+    - Option **4**: View Database
+    - Option **5**: Export Chats
+  </Step>
+</Steps>
+
+## Termux-Specific Features
+
+### TermuxManager Class
+
+The tool uses a specialized manager for Termux operations:
+
+```python
+# From core/termux_manager.py
+class TermuxManager:
+    def __init__(self, output_dir: str = "backups"):
+        self.output_dir = output_dir
+        self.os_type = 'termux'
+    
+    def is_installed(self) -> bool:
+        # ADB not needed in Termux
+        return True
+    
+    def get_devices(self) -> List[str]:
+        # Returns localhost
+        return ["localhost (Termux)"]
+    
+    def find_backups(self, device_id, user_id, package):
+        # Direct filesystem access
+        # Searches /sdcard, ~/storage/shared, etc.
+        ...
+    
+    def dump_backup(self, device_id, remote_path, ...):
+        # Uses shutil.copy2 instead of adb pull
+        shutil.copy2(remote_path, local_path)
+```
+
+### Storage Access Differences
+
+<Tabs>
+  <Tab title="ADB Mode (PC)">
+    **Access Method**: `adb pull`
+    
+    **Limitations**:
+    - Requires USB debugging
+    - Android 11+ scoped storage restrictions
+    - Cannot access `/data/data/` without root
+    
+    **Backup Paths**:
+    - `/storage/emulated/0/WhatsApp/Databases`
+    - `/storage/emulated/0/Android/media/com.whatsapp`
+  </Tab>
+
+  <Tab title="Termux Mode">
+    **Access Method**: Direct filesystem (`shutil.copy2`)
+    
+    **Advantages**:
+    - No USB/ADB required
+    - Full access to `/sdcard` after permission grant
+    - Can access app directories if Termux has permissions
+    
+    **Backup Paths**:
+    - `/sdcard/WhatsApp/Databases`
+    - `~/storage/shared/WhatsApp/Databases`
+    - `/sdcard/Android/media/com.whatsapp`
+  </Tab>
+</Tabs>
+
+## Common Termux Issues
+
+### Issue: "Permission denied" when accessing storage
+
+**Cause**: Storage permissions not granted
+
+**Solution**:
+```bash
+# Run setup again
+termux-setup-storage
+
+# Manually grant in Android Settings:
+# Settings → Apps → Termux → Permissions → Storage → Allow
+```
+
+### Issue: "pkg: command not found"
+
+**Cause**: Termux not properly installed or corrupted
+
+**Solution**:
+- Uninstall Termux
+- Reinstall from F-Droid (NOT Play Store)
+- Run `pkg update`
+
+### Issue: Python installation fails
+
+**Error**: `E: Unable to locate package python`
+
+**Solution**:
+```bash
+# Update package lists
+pkg update && pkg upgrade -y
+
+# Try installing again
+pkg install python
+
+# If still fails, clear cache
+pkg clean
+pkg update
+pkg install python
+```
+
+### Issue: "No space left on device"
+
+**Cause**: Termux internal storage full
+
+**Solution**:
+```bash
+# Check Termux storage usage
+du -sh ~/*
+
+# Clean package cache
+pkg clean
+apt clean
+
+# Move backups to SD card
+mv ~/whatsapp-forensic-tool/backups ~/storage/shared/WhatsApp-Backups
+```
+
+### Issue: "pip install" fails with SSL errors
+
+**Cause**: Missing SSL certificates or outdated CA bundle
+
+**Solution**:
+```bash
+# Update ca-certificates
+pkg install ca-certificates
+
+# Upgrade pip
+pip install --upgrade pip
+
+# Retry installation
+pip install -r requirements.txt
+```
+
+### Issue: Tool doesn't detect Termux environment
+
+**Symptom**: Tries to use ADB instead of local filesystem
+
+**Solution**:
+```bash
+# Verify Termux environment variable
+echo $PREFIX
+# Should output: /data/data/com.termux/files/usr
+
+# If empty, restart Termux app completely
+# Don't use "adb shell" - use Termux app UI
+```
+
+<Warning>
+**CRITICAL**: The tool MUST be run inside the Termux app, not via `adb shell`. Running via ADB shell will trigger ADB mode instead of Termux mode.
+</Warning>
+
+### Issue: Cannot find WhatsApp backups
+
+**Troubleshooting**:
+
+<Steps>
+  <Step title="Verify Storage Access">
+    ```bash
+    ls ~/storage/shared/WhatsApp
+    # Should list: Backups, Databases, Media
+    ```
+  </Step>
+
+  <Step title="Check Backup Location">
+    WhatsApp may store backups in different paths:
+    ```bash
+    # Legacy path
+    ls /sdcard/WhatsApp/Databases
+    
+    # Android 11+ scoped storage
+    ls /sdcard/Android/media/com.whatsapp/WhatsApp/Databases
+    ```
+  </Step>
+
+  <Step title="Verify Backup Files Exist">
+    ```bash
+    find /sdcard -name "msgstore*.crypt*" 2>/dev/null
+    ```
+    
+    Should list all encrypted backup files.
+  </Step>
+</Steps>
+
+## Advanced Termux Usage
+
+### Running in Background
+
+Keep the tool running even when Termux is backgrounded:
+
+```bash
+# Install tmux for persistent sessions
+pkg install tmux
+
+# Start tmux session
+tmux new -s forensic
+
+# Run tool
+cd ~/whatsapp-forensic-tool
+python main.py
+
+# Detach: Ctrl+B, then D
+# Reattach: tmux attach -t forensic
+```
+
+### Automating Backups
+
+Create a script to auto-copy backups:
+
+```bash
+#!/bin/bash
+# save as ~/auto-backup.sh
+
+SOURCE="/sdcard/WhatsApp/Databases"
+DEST="$HOME/whatsapp-forensic-tool/backups/manual"
+
+mkdir -p "$DEST"
+cp -v "$SOURCE"/msgstore*.crypt* "$DEST/"
+echo "Backup copied: $(date)"
+```
+
+Run:
+```bash
+chmod +x ~/auto-backup.sh
+bash ~/auto-backup.sh
+```
+
+### Accessing Root Files (Rooted Devices)
+
+If your device is rooted:
+
+```bash
+# Install tsu (Termux su wrapper)
+pkg install tsu
+
+# Access root shell
+sudo su
+
+# Navigate to app data
+cd /data/data/com.whatsapp/files
+
+# Copy encryption key
+cp key ~/whatsapp-forensic-tool/
+
+# Exit root
+exit
+```
+
+<Warning>
+Root access is NOT required for the tool to work. Only use if you need to extract the encryption key from app data.
+</Warning>
+
+### Installing Additional Tools
+
+Useful Termux packages:
+
+```bash
+# SQLite browser
+pkg install sqlite
+
+# File manager
+pkg install nnn
+
+# Text editor
+pkg install vim nano
+
+# Network tools
+pkg install openssh rsync
+
+# Compression tools
+pkg install zip unzip
+```
+
+## Termux Workflow Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Use Persistent Sessions" icon="window-restore">
+    Use `tmux` to keep sessions alive when switching apps.
+  </Card>
+
+  <Card title="Backup to External Storage" icon="sd-card">
+    Store backups on SD card to save Termux internal space.
+  </Card>
+
+  <Card title="Regular Updates" icon="rotate">
+    Keep Termux and packages updated:
+    ```bash
+    pkg update && pkg upgrade
+    ```
+  </Card>
+
+  <Card title="Monitor Storage" icon="hard-drive">
+    Check space before operations:
+    ```bash
+    df -h ~
+    ```
+  </Card>
+</CardGroup>
+
+## Termux vs ADB: Feature Comparison
+
+| Feature | ADB Mode (PC) | Termux Mode |
+|---------|---------------|-------------|
+| **Setup Complexity** | Medium (USB drivers, ADB) | Easy (install Termux) |
+| **PC Required** | Yes | No |
+| **Storage Access** | Limited (scoped storage) | Full (with permissions) |
+| **Performance** | USB transfer overhead | Direct filesystem |
+| **Android 11+ Support** | Limited | Full |
+| **Media Extraction** | Yes (via ADB pull) | Yes (direct copy) |
+| **Root Access** | Via ADB root | Via tsu (if rooted) |
+| **Portability** | Requires PC setup | Fully portable |
+| **Network Operation** | Possible (ADB over WiFi) | Native |
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Quick Start" icon="rocket" href="/quickstart">
+    Learn the basic workflow
+  </Card>
+
+  <Card title="Decryption Guide" icon="key" href="/features/decryption">
+    Understand encryption key formats
+  </Card>
+
+  <Card title="Windows Guide" icon="windows" href="/guides/windows">
+    Platform guide for Windows users
+  </Card>
+
+  <Card title="Troubleshooting" icon="wrench" href="/resources/troubleshooting">
+    Advanced troubleshooting
+  </Card>
+</CardGroup>
+
+## Termux Resources
+
+- **Official Wiki**: [wiki.termux.com](https://wiki.termux.com)
+- **F-Droid**: [f-droid.org/packages/com.termux](https://f-droid.org/packages/com.termux/)
+- **Community**: [r/termux](https://reddit.com/r/termux)
+- **GitHub**: [termux/termux-app](https://github.com/termux/termux-app)

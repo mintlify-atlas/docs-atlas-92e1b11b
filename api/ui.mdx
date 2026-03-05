@@ -1,0 +1,569 @@
+---
+title: "UI"
+description: "Rich terminal user interface for the WhatsApp Forensic Tool"
+icon: "terminal"
+---
+
+## Overview
+
+The `UI` class (`core/ui.py:31`) provides a beautiful, consistent terminal interface using the Rich library. It handles all visual output including headers, menus, tables, progress bars, and formatted messages with custom theming.
+
+## Class Definition
+
+```python core/ui.py
+class UI:
+    def __init__(self):
+        self.console = console
+        self._status = {
+            "device": "None",
+            "mode": "ADB",
+            "os": f"{platform.system()} {platform.release()}",
+            "python": platform.python_version(),
+            "key": "Not Loaded"
+        }
+```
+
+**Singleton Pattern:**
+- A global `ui` instance is created at module level: `ui = UI()`
+- Use the global instance throughout your application
+
+## Constructor
+
+### `__init__()`
+
+Initializes the UI with system information and status tracking.
+
+**Attributes:**
+- `console`: Rich Console instance with custom theme
+- `_status`: Dictionary tracking application state:
+  - `device`: Connected device identifier
+  - `mode`: Operation mode ("ADB" or "Termux")
+  - `os`: Operating system and version
+  - `python`: Python version
+  - `key`: Encryption key status
+
+## Status Management
+
+### `update_status()`
+
+Updates a status field displayed in the header.
+
+```python
+def update_status(self, key: str, value: str)
+```
+
+<ParamField path="key" type="str" required>
+  Status field name ("device", "mode", "os", "python", "key")
+</ParamField>
+
+<ParamField path="value" type="str" required>
+  New value for the status field
+</ParamField>
+
+**Example:**
+
+```python
+from core.ui import ui
+
+ui.update_status("device", "RF8N70PQRST")
+ui.update_status("key", "Loaded")
+```
+
+## Display Methods
+
+### `print_header()`
+
+Displays the application header with title and system information panel.
+
+```python
+def print_header(self)
+```
+
+**Features:**
+- Clears screen automatically
+- Shows "WhatsApp Backup Forensic Tool v2.0" title
+- Displays system info panel with:
+  - OS and Python version
+  - Operation mode (ADB/Termux)
+  - Connected device
+  - Encryption key status with color coding
+
+**Example:**
+
+```python
+from core.ui import ui
+
+ui.print_header()
+```
+
+### `print_menu()`
+
+Displays a formatted menu with numbered options in a Rich table.
+
+```python
+def print_menu(self, title: str, options: List[str])
+```
+
+<ParamField path="title" type="str" required>
+  Menu title displayed in panel border
+</ParamField>
+
+<ParamField path="options" type="List[str]" required>
+  List of menu option descriptions (auto-numbered starting from 1)
+</ParamField>
+
+**Example:**
+
+```python
+ui.print_menu("Main Menu", [
+    "Connect Device",
+    "Dump Backup Files",
+    "Decrypt Database",
+    "View Chats",
+    "Export Data",
+    "Exit"
+])
+```
+
+### `print_table()`
+
+Displays data in a formatted Rich table.
+
+```python
+def print_table(self, title: str, headers: List[str], rows: List[List[str]])
+```
+
+<ParamField path="title" type="str" required>
+  Table title
+</ParamField>
+
+<ParamField path="headers" type="List[str]" required>
+  Column header names
+</ParamField>
+
+<ParamField path="rows" type="List[List[str]]" required>
+  List of row data (each row is a list of strings)
+</ParamField>
+
+**Example:**
+
+```python
+ui.print_table(
+    "Available Chats",
+    ["ID", "Name", "Messages", "Last Active"],
+    [
+        ["1", "John Doe", "453", "2024-03-05"],
+        ["2", "Work Group", "1204", "2024-03-04"],
+        ["3", "Mom", "2891", "2024-03-05"]
+    ]
+)
+```
+
+## Message Output
+
+### `print_info()`
+
+Displays an informational message with cyan "[INFO]" prefix.
+
+```python
+def print_info(self, msg: str)
+```
+
+<ParamField path="msg" type="str" required>
+  Information message to display
+</ParamField>
+
+**Example:**
+
+```python
+ui.print_info("Connecting to device...")
+```
+
+### `print_success()`
+
+Displays a success message with green "[SUCCESS]" prefix.
+
+```python
+def print_success(self, msg: str)
+```
+
+<ParamField path="msg" type="str" required>
+  Success message to display
+</ParamField>
+
+**Example:**
+
+```python
+ui.print_success("Database decrypted successfully!")
+```
+
+### `print_warning()`
+
+Displays a warning message with yellow "[WARNING]" prefix.
+
+```python
+def print_warning(self, msg: str)
+```
+
+<ParamField path="msg" type="str" required>
+  Warning message to display
+</ParamField>
+
+**Example:**
+
+```python
+ui.print_warning("No encryption key found for this device")
+```
+
+### `print_error()`
+
+Displays an error message in a prominent red panel.
+
+```python
+def print_error(self, msg: str)
+```
+
+<ParamField path="msg" type="str" required>
+  Error message to display
+</ParamField>
+
+**Example:**
+
+```python
+ui.print_error("Failed to connect to device. Check ADB connection.")
+```
+
+## Interactive Input
+
+### `ask()`
+
+Prompts the user for text input with optional default value and choices.
+
+```python
+def ask(self, question: str, default: str = None, choices: List[str] = None) -> str
+```
+
+<ParamField path="question" type="str" required>
+  Question prompt displayed to user
+</ParamField>
+
+<ParamField path="default" type="str" default="None">
+  Default value if user presses Enter without input
+</ParamField>
+
+<ParamField path="choices" type="List[str]" default="None">
+  List of valid choices. User input will be validated against this list.
+</ParamField>
+
+<ResponseField name="return" type="str">
+  User's input string
+</ResponseField>
+
+**Example:**
+
+```python
+# Simple text input
+name = ui.ask("Enter device name")
+
+# With default value
+package = ui.ask("WhatsApp package", default="com.whatsapp")
+
+# With choices (validated)
+format_choice = ui.ask(
+    "Select export format",
+    choices=["csv", "json", "html", "txt"]
+)
+```
+
+### `confirm()`
+
+Prompts the user for a yes/no confirmation.
+
+```python
+def confirm(self, question: str, default: bool = True) -> bool
+```
+
+<ParamField path="question" type="str" required>
+  Confirmation question
+</ParamField>
+
+<ParamField path="default" type="bool" default="True">
+  Default answer if user presses Enter
+</ParamField>
+
+<ResponseField name="return" type="bool">
+  True if user confirmed, False otherwise
+</ResponseField>
+
+**Example:**
+
+```python
+if ui.confirm("Overwrite existing file?", default=False):
+    # User confirmed
+    save_file()
+else:
+    # User declined
+    ui.print_info("Operation cancelled")
+```
+
+## Progress Indicators
+
+### `create_progress()`
+
+Creates a Rich Progress bar for tracking long-running operations.
+
+```python
+def create_progress(self, desc: str, total: int = None) -> Progress
+```
+
+<ParamField path="desc" type="str" required>
+  Description displayed next to progress bar
+</ParamField>
+
+<ParamField path="total" type="int" default="None">
+  Total number of items (None for indeterminate progress)
+</ParamField>
+
+<ResponseField name="return" type="Progress">
+  Rich Progress instance with spinner, bar, percentage, and time remaining
+</ResponseField>
+
+**Example:**
+
+```python
+with ui.create_progress("Dumping files", total=100) as progress:
+    task = progress.add_task("Processing", total=100)
+    
+    for i in range(100):
+        # Do work
+        time.sleep(0.1)
+        progress.update(task, advance=1)
+```
+
+### `spinner()`
+
+Creates a spinner context manager for operations without progress tracking.
+
+```python
+def spinner(self, text: str)
+```
+
+<ParamField path="text" type="str" required>
+  Status text displayed with spinner
+</ParamField>
+
+**Returns:** Context manager that displays an animated spinner
+
+**Example:**
+
+```python
+with ui.spinner("Connecting to device..."):
+    device.connect()
+    time.sleep(2)
+
+ui.print_success("Connected!")
+```
+
+## Chat Display
+
+### `print_message()`
+
+Displays a WhatsApp message with formatted timestamp and sender.
+
+```python
+def print_message(self, msg: Dict[str, Any])
+```
+
+<ParamField path="msg" type="Dict[str, Any]" required>
+  Message dictionary containing:
+  - `from_me` (bool): Whether message was sent by user
+  - `timestamp` (int): Unix timestamp
+  - `sender` (str): Sender name
+  - `text` (str): Message content
+</ParamField>
+
+**Formatting:**
+- Sent messages: Green color, right-aligned
+- Received messages: Cyan sender name, left-aligned
+- Timestamp automatically formatted as "HH:MM DD/MM"
+
+**Example:**
+
+```python
+messages = viewer.get_messages(chat_id, chat_jid, limit=50)
+
+for msg in messages:
+    ui.print_message(msg)
+```
+
+### `print_session_summary()`
+
+Displays a summary panel with session statistics.
+
+```python
+def print_session_summary(self, summary: Dict)
+```
+
+<ParamField path="summary" type="Dict" required>
+  Summary dictionary containing:
+  - `dumped` (int): Number of files dumped
+  - `decrypted` (int): Number of databases decrypted
+  - `exports` (int): Number of exports created
+</ParamField>
+
+**Example:**
+
+```python
+summary = {
+    "dumped": 15,
+    "decrypted": 3,
+    "exports": 2
+}
+
+ui.print_session_summary(summary)
+```
+
+## Utility Methods
+
+### `clear()`
+
+Clears the terminal screen.
+
+```python
+def clear(self)
+```
+
+**Example:**
+
+```python
+ui.clear()
+```
+
+## Custom Theme
+
+The UI uses a custom Rich theme with predefined styles:
+
+```python
+custom_theme = Theme({
+    "info": "cyan",
+    "warning": "yellow",
+    "error": "bold red",
+    "success": "bold green",
+    "header": "bold white on blue",
+    "highlight": "bold magenta",
+    "border": "blue",
+    "key": "bold yellow"
+})
+```
+
+## Complete Usage Example
+
+```python
+from core.ui import ui
+import time
+
+# Display header
+ui.print_header()
+
+# Update status
+ui.update_status("device", "RF8N70PQRST")
+ui.update_status("key", "Loaded")
+
+# Show menu
+ui.print_menu("Main Menu", [
+    "Dump Backup Files",
+    "Decrypt Database",
+    "View Chats",
+    "Export Data",
+    "Exit"
+])
+
+# Get user choice
+choice = ui.ask("Select option", choices=["1", "2", "3", "4", "5"])
+
+if choice == "1":
+    # Show spinner for connection
+    with ui.spinner("Connecting to device..."):
+        time.sleep(2)
+    
+    ui.print_success("Connected successfully!")
+    
+    # Show progress for file transfer
+    files = [f"file{i}.db" for i in range(10)]
+    with ui.create_progress("Dumping files", total=len(files)) as progress:
+        task = progress.add_task("Copying", total=len(files))
+        
+        for file in files:
+            # Transfer file
+            time.sleep(0.5)
+            progress.update(task, advance=1)
+    
+    ui.print_success(f"Dumped {len(files)} files")
+
+elif choice == "3":
+    # Display chat list
+    ui.print_table(
+        "Available Chats",
+        ["ID", "Name", "Messages"],
+        [
+            ["1", "John Doe", "453"],
+            ["2", "Work Group", "1204"],
+            ["3", "Mom", "2891"]
+        ]
+    )
+    
+    # Get selection
+    chat_id = ui.ask("Enter chat ID to view")
+    
+    # Display messages
+    ui.print_info(f"Viewing chat {chat_id}")
+    
+    # Sample messages
+    messages = [
+        {
+            "from_me": False,
+            "timestamp": 1709654400000,
+            "sender": "John Doe",
+            "text": "Hey, how are you?"
+        },
+        {
+            "from_me": True,
+            "timestamp": 1709654460000,
+            "sender": "Me",
+            "text": "I'm good, thanks!"
+        }
+    ]
+    
+    for msg in messages:
+        ui.print_message(msg)
+
+elif choice == "5":
+    if ui.confirm("Are you sure you want to exit?"):
+        ui.print_info("Goodbye!")
+        exit(0)
+
+# Show session summary
+summary = {
+    "dumped": 15,
+    "decrypted": 3,
+    "exports": 2
+}
+ui.print_session_summary(summary)
+```
+
+## Related
+
+<CardGroup cols={2}>
+  <Card title="Main Application" icon="play" href="/getting-started/usage">
+    See the UI in action in main.py
+  </Card>
+  <Card title="Viewer" icon="database" href="/api/viewer">
+    Display chat data using the Viewer class
+  </Card>
+  <Card title="Rich Documentation" icon="book" href="https://rich.readthedocs.io/">
+    Learn more about Rich library features
+  </Card>
+  <Card title="Custom Themes" icon="palette" href="/advanced/customization">
+    Customize the UI theme
+  </Card>
+</CardGroup>

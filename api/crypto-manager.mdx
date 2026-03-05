@@ -1,0 +1,263 @@
+---
+title: "CryptoManager"
+description: "Handles WhatsApp backup decryption and encryption key management"
+icon: "lock"
+---
+
+## Overview
+
+The `CryptoManager` class (`core/crypto_manager.py:19`) is responsible for decrypting WhatsApp backup files and managing encryption keys securely. It supports crypt12, crypt14, and crypt15 formats.
+
+## Class Definition
+
+```python core/crypto_manager.py
+class CryptoManager:
+    """
+    Handles decryption and key management.
+    """
+    
+    COMMON_OFFSETS = [(8, 24, 135), (67, 83, 190), (191, 207, 224), (67, 83, 83)]
+```
+
+## Constructor
+
+### `__init__()`
+
+Initializes the CryptoManager with secure key storage.
+
+```python
+def __init__(self):
+    self.app_data_dir = get_app_data_path()
+    self.KEY_FILE = os.path.join(self.app_data_dir, "keys.json")
+    self.storage_key = self._get_storage_key()
+    self._migrate_keys()
+    self.keys = self._load_keys()
+```
+
+**Attributes:**
+- `app_data_dir`: Platform-specific application data directory
+- `KEY_FILE`: Path to encrypted keys.json file
+- `storage_key`: Machine-specific 32-byte AES key
+- `keys`: Dictionary of saved decryption keys
+
+## Core Methods
+
+### `decrypt_file()`
+
+Decrypts a WhatsApp backup file using the provided hexadecimal key.
+
+```python
+def decrypt_file(self, input_path: str, key_hex: str, output_path: str) -> bool
+```
+
+<ParamField path="input_path" type="str" required>
+  Path to the encrypted backup file (*.crypt12/14/15)
+</ParamField>
+
+<ParamField path="key_hex" type="str" required>
+  64-character hexadecimal encryption key
+</ParamField>
+
+<ParamField path="output_path" type="str" required>
+  Path where decrypted SQLite database will be saved
+</ParamField>
+
+<ResponseField name="return" type="bool">
+  True if decryption succeeded, False otherwise
+</ResponseField>
+
+**Decryption Process:**
+
+1. Validates input file and hex key
+2. Attempts crypt12 decryption (AES-GCM with simple IV)
+3. Derives key using HMAC-SHA256
+4. Tries known offset patterns from `COMMON_OFFSETS`
+5. Performs brute-force offset scanning if needed
+6. Decompresses with zlib
+7. Writes decrypted SQLite database
+
+**Example:**
+
+```python
+from core.crypto_manager import CryptoManager
+
+crypto = CryptoManager()
+success = crypto.decrypt_file(
+    'msgstore.db.crypt15',
+    'a1b2c3d4e5f6...', # 64-char hex key
+    'msgstore.db.crypt15.decrypted.db'
+)
+```
+
+### `save_key()`
+
+Saves a decryption key securely with machine-specific encryption.
+
+```python
+def save_key(self, device_id: str, package: str, key: str)
+```
+
+<ParamField path="device_id" type="str" required>
+  Device serial number or identifier
+</ParamField>
+
+<ParamField path="package" type="str" required>
+  WhatsApp package (com.whatsapp or com.whatsapp.w4b)
+</ParamField>
+
+<ParamField path="key" type="str" required>
+  64-character hexadecimal decryption key
+</ParamField>
+
+**Storage:**
+- Keys are stored in `keys.json` at the app data directory
+- File is encrypted with AES-GCM using machine-specific key
+- Keys are organized by device ID and package
+
+**Example:**
+
+```python
+crypto.save_key(
+    device_id="RF8N70PQRST",
+    package="com.whatsapp",
+    key="a1b2c3d4e5f6..."
+)
+```
+
+### `get_key()`
+
+Retrieves a saved decryption key for a specific device and package.
+
+```python
+def get_key(self, device_id: str, package: str) -> Optional[str]
+```
+
+<ParamField path="device_id" type="str" required>
+  Device serial number
+</ParamField>
+
+<ParamField path="package" type="str" required>
+  WhatsApp package identifier
+</ParamField>
+
+<ResponseField name="return" type="Optional[str]">
+  64-character hex key if found, None otherwise
+</ResponseField>
+
+## Internal Methods
+
+### `_get_storage_key()`
+
+Derives a machine-specific encryption key using PBKDF2.
+
+```python
+def _get_storage_key(self) -> bytes
+```
+
+**Implementation:**
+- Uses MAC address (`uuid.getnode()`) as unique identifier
+- Applies PBKDF2 with 100,000 iterations
+- Salt: `WhatsAppForensicTool_Storage_Salt`
+- Output: 32-byte AES-256 key
+
+### `_derive_key()`
+
+Derives the database encryption key from the raw 64-byte key using HMAC-SHA256.
+
+```python
+def _derive_key(self, key_stream: bytes) -> bytes
+```
+
+**Process:**
+1. Intermediate key: HMAC-SHA256 with null key and key_stream
+2. Final key: HMAC-SHA256 with intermediate key and "backup encryption\x01"
+
+### `_encrypt_data()` / `_decrypt_data()`
+
+Encrypts/decrypts key storage file using AES-GCM.
+
+```python
+def _encrypt_data(self, data: bytes) -> bytes
+def _decrypt_data(self, data: bytes) -> bytes
+```
+
+**Format:** `[12-byte nonce][16-byte tag][ciphertext]`
+
+### `_migrate_keys()`
+
+Automatically migrates plaintext keys to encrypted storage.
+
+```python
+def _migrate_keys(self)
+```
+
+**Migration:**
+- Detects legacy `keys.json` in project directory
+- Encrypts and moves to app data directory
+- Creates backup (`.bak` file)
+
+## Constants
+
+### `COMMON_OFFSETS`
+
+Known IV and database start offsets for WhatsApp backup formats.
+
+```python
+COMMON_OFFSETS = [
+    (8, 24, 135),    # IV start, IV end, DB start
+    (67, 83, 190),
+    (191, 207, 224),
+    (67, 83, 83)
+]
+```
+
+These offsets are tried before brute-force scanning.
+
+## Usage Example
+
+```python
+from core.crypto_manager import CryptoManager
+
+# Initialize manager
+crypto = CryptoManager()
+
+# Check for saved key
+saved_key = crypto.get_key("RF8N70PQRST", "com.whatsapp")
+
+if saved_key:
+    # Use saved key
+    success = crypto.decrypt_file(
+        "msgstore.db.crypt15",
+        saved_key,
+        "decrypted.db"
+    )
+else:
+    # Prompt user for key
+    user_key = input("Enter 64-char hex key: ")
+    success = crypto.decrypt_file(
+        "msgstore.db.crypt15",
+        user_key,
+        "decrypted.db"
+    )
+    
+    if success:
+        # Save for future use
+        crypto.save_key("RF8N70PQRST", "com.whatsapp", user_key)
+```
+
+## Related
+
+<CardGroup cols={2}>
+  <Card title="Decryption Guide" icon="key" href="/features/decryption">
+    Learn how to decrypt WhatsApp backups
+  </Card>
+  <Card title="Crypt Formats" icon="file-code" href="/advanced/crypt-formats">
+    Understanding crypt12/14/15 formats
+  </Card>
+  <Card title="Key Management" icon="database" href="/advanced/key-management">
+    Advanced key storage and security
+  </Card>
+  <Card title="Troubleshooting" icon="wrench" href="/advanced/troubleshooting">
+    Solve decryption issues
+  </Card>
+</CardGroup>

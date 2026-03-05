@@ -1,0 +1,773 @@
+---
+title: 'ADB Operations'
+description: 'Deep dive into Android Debug Bridge internals and device communication'
+icon: 'android'
+---
+
+## Overview
+
+The Android Debug Bridge (ADB) is the core technology enabling this tool to communicate with Android devices. Understanding ADB's architecture and the tool's implementation helps troubleshoot issues and extend functionality.
+
+## ADB Architecture
+
+### Components
+
+ADB operates as a client-server architecture with three components:
+
+1. **ADB Client**: Command-line tool that sends commands
+2. **ADB Server**: Background daemon that manages device connections
+3. **ADB Daemon (adbd)**: Runs on the Android device, executes commands
+
+```
+┌─────────────────┐
+│  Tool (Client)  │
+└────────┬────────┘
+         │ TCP/IP (localhost:5037)
+         ▼
+┌─────────────────┐
+│   ADB Server    │  ← Manages device connections
+└────────┬────────┘
+         │ USB or TCP/IP
+         ▼
+┌─────────────────┐
+│ adbd (Device)   │  ← Runs commands on device
+└─────────────────┘
+```
+
+### Communication Protocol
+
+- **Client → Server**: TCP port 5037 (localhost)
+- **Server → Device**: USB or TCP/IP (wireless ADB)
+- **Protocol**: Custom binary protocol with length-prefixed messages
+
+## Tool's ADB Implementation
+
+### DeviceManager Class
+
+**Location**: `core/device_manager.py:13-283`
+
+The `DeviceManager` class consolidates all ADB operations:
+
+```python
+class DeviceManager:
+    ADB_URLS = {  # Platform-specific download URLs
+        'windows': 'https://dl.google.com/android/.../platform-tools-latest-windows.zip',
+        'linux': '...platform-tools-latest-linux.zip',
+        'darwin': '...platform-tools-latest-darwin.zip'
+    }
+    
+    def __init__(self, adb_dir: str = "adb", output_dir: str = "backups"):
+        self.adb_dir = os.path.abspath(adb_dir)
+        self.adb_executable = self._get_adb_path()
+```
+
+### ADB Executable Detection
+
+**Method**: `_get_adb_path()` at line 37-48
+
+```python
+def _get_adb_path(self) -> str:
+    exe_name = "adb.exe" if self.os_type == 'windows' else "adb"
+    
+    # Check platform-tools subdirectory (standard location)
+    potential_path = os.path.join(self.adb_dir, "platform-tools", exe_name)
+    if os.path.exists(potential_path): 
+        return potential_path
+    
+    # Check adb directory directly (fallback)
+    potential_path = os.path.join(self.adb_dir, exe_name)
+    if os.path.exists(potential_path): 
+        return potential_path
+    
+    return ""  # Not found
+```
+
+**Paths checked** (in order):
+1. `adb/platform-tools/adb[.exe]` (standard)
+2. `adb/adb[.exe]` (fallback)
+
+### Automatic ADB Download
+
+**Method**: `download_adb()` at line 53-66
+
+```python
+def download_adb(self):
+    url = self.ADB_URLS.get(self.os_type)
+    print_info(f"Downloading ADB for {self.os_type}...")
+    
+    response = requests.get(url, stream=True)
+    with zipfile.ZipFile(io.BytesIO(response.content)) as z:
+        z.extractall(self.adb_dir)  # Extracts to adb/platform-tools/
+    
+    self.adb_executable = self._get_adb_path()
+    
+    # Make executable on Unix systems
+    if self.os_type != 'windows' and self.adb_executable:
+        os.chmod(self.adb_executable, 0o755)
+```
+
+**Called from**: `main.py:86-93` during startup if ADB not found
+
+<Info>
+The tool downloads official Google SDK platform-tools directly from `dl.google.com`. This ensures latest ADB version with security updates.
+</Info>
+
+## Command Execution
+
+### Core Method: run_command()
+
+**Location**: `core/device_manager.py:68-80`
+
+All ADB operations use this method:
+
+```python
+def run_command(self, args: List[str]) -> Tuple[int, str, str]:
+    if not self.is_installed(): 
+        return -1, "", "ADB not installed."
+    
+    cmd = [self.adb_executable] + args
+    
+    startupinfo = None
+    if self.os_type == 'windows':
+        # Hide console window on Windows
+        startupinfo = subprocess.STARTUPINFO()
+        startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+    
+    process = subprocess.Popen(
+        cmd, 
+        stdout=subprocess.PIPE, 
+        stderr=subprocess.PIPE, 
+        text=True, 
+        startupinfo=startupinfo
+    )
+    stdout, stderr = process.communicate()
+    
+    return process.returncode, stdout, stderr
+```
+
+**Returns**: `(exit_code, stdout, stderr)`
+- **exit_code**: 0 = success, non-zero = error
+- **stdout**: Command output
+- **stderr**: Error messages
+
+### Example Usage
+
+```python
+from core.device_manager import DeviceManager
+
+dm = DeviceManager()
+
+# List devices
+code, stdout, stderr = dm.run_command(['devices'])
+print(stdout)
+# Output:
+# List of devices attached
+# ABC123456789    device
+
+# Get device property
+code, stdout, stderr = dm.run_command(['-s', 'ABC123456789', 'shell', 'getprop', 'ro.product.model'])
+print(stdout.strip())  # Device model name
+```
+
+## Device Discovery
+
+### Listing Connected Devices
+
+**Method**: `get_devices()` at line 83-90
+
+```python
+def get_devices(self) -> List[str]:
+    code, stdout, stderr = self.run_command(['devices'])
+    if code != 0: 
+        return []
+    
+    devices = []
+    for line in stdout.strip().split('\n')[1:]:
+        if '\tdevice' in line:
+            devices.append(line.split('\t')[0])
+    
+    return devices
+```
+
+**Example output parsing**:
+
+Raw `adb devices` output:
+```
+List of devices attached
+ABC123456789    device
+DEF987654321    unauthorized
+GHI111222333    offline
+```
+
+Parsed result:
+```python
+['ABC123456789']  # Only returns devices with 'device' status
+```
+
+<Warning>
+Devices showing "unauthorized" or "offline" are excluded. User must accept USB debugging prompt for "unauthorized" devices.
+</Warning>
+
+### Detailed Device Information
+
+**Method**: `get_detailed_device_info()` at line 92-143
+
+Queries multiple system properties and services:
+
+```python
+def get_detailed_device_info(self, serial: str) -> dict:
+    props = {
+        'Model': 'ro.product.model',
+        'Brand': 'ro.product.brand',
+        'Android Version': 'ro.build.version.release',
+        'SDK': 'ro.build.version.sdk',
+        'Manufacturer': 'ro.product.manufacturer',
+        # ...
+    }
+    
+    info = {'Serial': serial}
+    for key, prop in props.items():
+        _, val, _ = self.run_command(['-s', serial, 'shell', 'getprop', prop])
+        info[key] = val.strip() if val else "Unknown"
+    
+    # Battery info from dumpsys
+    _, bat, _ = self.run_command(['-s', serial, 'shell', 'dumpsys', 'battery'])
+    if bat:
+        level = re.search(r'level: (\d+)', bat)
+        info['Battery'] = f"{level.group(1)}%" if level else "Unknown"
+    
+    # Memory info from /proc/meminfo
+    _, mem, _ = self.run_command(['-s', serial, 'shell', 'cat', '/proc/meminfo'])
+    # Parse MemTotal, MemAvailable...
+    
+    return info
+```
+
+**Properties queried**:
+- `ro.product.model` - Device model (e.g., "Pixel 5")
+- `ro.product.brand` - Brand (e.g., "Google")
+- `ro.build.version.release` - Android version (e.g., "13")
+- `ro.build.version.sdk` - SDK API level (e.g., "33")
+- `dumpsys battery` - Battery level
+- `/proc/meminfo` - RAM statistics
+- `df -h /data` - Storage information
+
+## Multi-Device Handling
+
+### Serial Number Targeting
+
+When multiple devices are connected, the `-s` flag specifies target device:
+
+```python
+# Wrong: Fails with "more than one device"
+self.run_command(['shell', 'ls', '/sdcard'])
+
+# Correct: Targets specific device
+self.run_command(['-s', device_serial, 'shell', 'ls', '/sdcard'])
+```
+
+**Tool implementation**: All device-specific commands include `-s` flag (`core/device_manager.py:101, 138, 158, etc.`)
+
+### User Selection
+
+When multiple devices detected, tool prompts for selection (`main.py:167-175`):
+
+```python
+if len(devices) == 1:
+    self.selected_device = devices[0]  # Auto-select
+else:
+    sel = ui.ask("Select device number (or Enter to skip)", default="")
+    if sel.isdigit() and 1 <= int(sel) <= len(devices):
+        idx = int(sel)-1
+        self.selected_device = devices[idx]
+```
+
+## Shell Command Execution
+
+### Basic Shell Commands
+
+```python
+# Run command in device shell
+code, stdout, stderr = dm.run_command(['-s', serial, 'shell', 'ls', '-l', '/sdcard'])
+
+# Multiple arguments with quotes (for paths with spaces)
+code, stdout, stderr = dm.run_command(['-s', serial, 'shell', 'ls', '"/sdcard/WhatsApp Business"'])
+```
+
+<Note>
+Quotes are preserved in Python list—no need for shell escaping. Use `'"path"'` for paths with spaces.
+</Note>
+
+### Package Manager Queries
+
+**Check installed packages** (`core/device_manager.py:155-161`):
+
+```python
+def check_packages(self, device_id: str) -> List[str]:
+    installed = []
+    for pkg in ['com.whatsapp', 'com.whatsapp.w4b']:
+        code, stdout, _ = self.run_command(['-s', device_id, 'shell', 'pm', 'path', pkg])
+        if code == 0 and stdout.strip():
+            installed.append(pkg)
+    return installed
+```
+
+**Command**: `pm path <package>` returns package APK path if installed:
+
+```bash
+# Installed:
+$ adb shell pm path com.whatsapp
+package:/data/app/com.whatsapp-xxx/base.apk
+
+# Not installed:
+$ adb shell pm path com.nonexistent
+# (no output, exit code 1)
+```
+
+### User Enumeration
+
+**Multi-user support** (`core/device_manager.py:145-153`):
+
+```python
+def get_users(self, device_id: str) -> List[Dict[str, str]]:
+    code, stdout, _ = self.run_command(['-s', device_id, 'shell', 'pm', 'list', 'users'])
+    users = []
+    for line in stdout.split('\n'):
+        match = re.search(r'UserInfo\{(\d+):([^:]+):', line)
+        if match:
+            users.append({'id': match.group(1), 'name': match.group(2)})
+    return users
+```
+
+**Example output**:
+```
+Users:
+    UserInfo{0:Owner:c13} running
+    UserInfo{10:Work Profile:1030} running
+```
+
+Parsed:
+```python
+[
+    {'id': '0', 'name': 'Owner'},
+    {'id': '10', 'name': 'Work Profile'}
+]
+```
+
+## File Operations
+
+### File Pull (Device → Computer)
+
+**Method**: `dump_backup()` at line 238-252
+
+```python
+def dump_backup(self, device_id: str, remote_path: str, 
+                user_id: str, package_type: str) -> str:
+    filename = os.path.basename(remote_path)
+    local_dir = os.path.join(self.output_dir, device_id, f"user_{user_id}", package_type)
+    os.makedirs(local_dir, exist_ok=True)
+    
+    local_path = os.path.join(local_dir, filename)
+    
+    # ADB pull command
+    code, _, stderr = self.run_command(['-s', device_id, 'pull', remote_path, local_path])
+    
+    if code == 0 and os.path.exists(local_path):
+        return local_path
+    else:
+        print_error(f"Failed to pull {remote_path}: {stderr}")
+        return ""
+```
+
+**ADB pull syntax**:
+```bash
+adb pull <remote_path> <local_path>
+```
+
+**Example**:
+```bash
+adb -s ABC123 pull "/sdcard/WhatsApp/Databases/msgstore.db.crypt14" "./backups/msgstore.db.crypt14"
+```
+
+### File Push (Computer → Device)
+
+Used by "Deploy to Termux" feature (`main.py:347-360`):
+
+```python
+self.device_manager.run_command(['-s', serial, 'push', 'main.py', f'{target_base}/'])
+```
+
+**ADB push syntax**:
+```bash
+adb push <local_path> <remote_path>
+```
+
+### Bulk File Transfer with Progress
+
+**Method**: `dump_media_with_progress()` at line 254-282
+
+For large media folders, uses subprocess with stdout streaming:
+
+```python
+def dump_media_with_progress(self, device_id: str, remote_path: str, local_dir: str):
+    # Count files first
+    full_cmd = f'{self.adb_executable} -s {device_id} shell "find \'{remote_path}\' -type f | wc -l"'
+    process = subprocess.run(full_cmd, shell=True, capture_output=True, text=True)
+    total_files = int(process.stdout.strip())
+    
+    # Pull with progress bar
+    cmd_pull = [self.adb_executable, '-s', device_id, 'pull', f"{remote_path}/.", local_dir]
+    process = subprocess.Popen(cmd_pull, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, 
+                               universal_newlines=True)
+    
+    pbar = tqdm(total=total_files, unit="file")
+    for line in process.stdout:
+        if line.startswith("[") or "->" in line:  # Progress indicators
+            pbar.update(1)
+    pbar.close()
+```
+
+**Why shell=True for file count**: The `find | wc -l` pipeline requires shell interpretation. For security, only used with controlled paths.
+
+<Warning>
+**Security Note**: Using `shell=True` can be dangerous with user input. The tool only uses it with internal, validated paths.
+</Warning>
+
+## Storage Paths
+
+### Accessible Storage (No Root Required)
+
+**Primary external storage**: `/sdcard/` or `/storage/emulated/0/`
+
+```python
+base = f"/storage/emulated/{user_id}/"
+```
+
+**WhatsApp paths** (`core/device_manager.py:165-170`):
+
+```python
+# Legacy path (Android <11)
+paths = [base + "WhatsApp/Databases"]
+
+# Scoped storage path (Android 11+)
+paths.append(base + "Android/media/com.whatsapp/WhatsApp/Databases")
+```
+
+**Why two paths?**
+
+Android 11+ introduced **scoped storage**, restricting app access to specific directories. WhatsApp moved backups to `Android/media/<package>/` to comply.
+
+### Protected Storage (Root Required)
+
+**App internal storage**: `/data/data/<package>/`
+
+Contains:
+- `files/key` - Encryption key (crypt14/15)
+- `databases/msgstore.db` - Live database (unencrypted)
+- `shared_prefs/` - App preferences
+
+```bash
+# Requires root
+adb shell
+su
+cat /data/data/com.whatsapp/files/key | xxd -p
+```
+
+<Warning>
+Accessing `/data/data/` requires:
+1. **Rooted device** (with SuperSU, Magisk, etc.)
+2. **USB debugging** + **Root debugging** enabled
+3. Or using Termux (which has app-level access as WhatsApp's user)
+</Warning>
+
+### Multi-User Paths
+
+Devices with multiple users have separate storage:
+
+- User 0 (primary): `/storage/emulated/0/`
+- User 10 (work): `/storage/emulated/10/`
+
+Tool queries all users and scans each (`main.py:238-250`)
+
+## Root vs Non-Root Access
+
+### Non-Root (Standard)
+
+**Accessible**:
+- External storage (`/sdcard/`, `/storage/emulated/`)
+- Backup files (`.crypt14` databases)
+- Media files
+
+**Not accessible**:
+- Encryption keys (`/data/data/*/files/key`)
+- Live databases (`/data/data/*/databases/`)
+- Protected app data
+
+### Root Access
+
+**Enables**:
+- Direct key extraction
+- Live database access (no backup needed)
+- System modifications
+
+**How to use**:
+
+```bash
+adb shell
+su  # Request root (requires rooted device)
+
+# Extract key
+cat /data/data/com.whatsapp/files/key | xxd -p > /sdcard/wa_key.txt
+exit
+exit
+
+adb pull /sdcard/wa_key.txt
+```
+
+### Termux Alternative
+
+Termux provides app-level access without root:
+
+1. Install Termux from F-Droid (NOT Google Play—outdated)
+2. Deploy tool to Termux: Menu → "Deploy to Termux"
+3. Run inside Termux app:
+
+```bash
+cd ~/whatsapp-forensic-tool
+python main.py
+```
+
+Termux can access WhatsApp's shared storage directly.
+
+## ADB Backup Command (Alternative Method)
+
+### Overview
+
+ADB provides a built-in backup mechanism:
+
+```bash
+adb backup -f backup.ab -noapk com.whatsapp
+```
+
+Creates a compressed, optionally encrypted `.ab` (Android Backup) file.
+
+### Limitations
+
+<Warning>
+**Why the tool doesn't use `adb backup`**:
+
+1. **Deprecated**: Removed in Android 12+ (API 31)
+2. **Requires user interaction**: User must unlock device and confirm backup
+3. **Optional encryption**: User can set passphrase, making extraction complex
+4. **Slow**: Compresses entire app data, taking minutes
+5. **Unreliable**: Many manufacturers disable it
+
+Direct file pull (`adb pull`) is faster, more reliable, and works on modern Android.
+</Warning>
+
+### Extracting .ab Files (If Needed)
+
+For legacy `.ab` backups:
+
+```bash
+# Unpack .ab to .tar
+( dd if=backup.ab bs=24 skip=1 | openssl zlib -d ) > backup.tar
+
+# Extract .tar
+tar -xvf backup.tar
+
+# Find database
+find . -name "msgstore.db.crypt*"
+```
+
+## Error Handling
+
+### Common Return Codes
+
+```python
+code, stdout, stderr = dm.run_command([...])
+
+if code != 0:
+    if "device not found" in stderr:
+        # Device disconnected
+    elif "device unauthorized" in stderr:
+        # USB debugging not authorized
+    elif "no such file" in stderr.lower():
+        # File/directory doesn't exist
+    else:
+        # Generic error
+```
+
+### Timeout Handling
+
+Long operations (large file transfers) may need timeouts:
+
+```python
+import signal
+
+def timeout_handler(signum, frame):
+    raise TimeoutError("ADB command timed out")
+
+# Set 60-second timeout (Unix only)
+signal.signal(signal.SIGALRM, timeout_handler)
+signal.alarm(60)
+
+try:
+    code, stdout, stderr = dm.run_command([...])
+except TimeoutError:
+    print("Command took too long")
+finally:
+    signal.alarm(0)  # Cancel alarm
+```
+
+<Info>
+The tool's `run_command()` doesn't implement timeouts by default. For production use, consider adding timeout parameter using `subprocess.run(timeout=...)`.
+</Info>
+
+## Advanced Operations
+
+### Wireless ADB (TCP/IP Mode)
+
+Connect to device over WiFi:
+
+```bash
+# 1. Connect via USB first
+adb devices
+
+# 2. Enable TCP/IP mode on port 5555
+adb tcpip 5555
+
+# 3. Find device IP (in device WiFi settings or)
+adb shell ip addr show wlan0
+
+# 4. Connect wirelessly
+adb connect 192.168.1.100:5555
+
+# 5. Disconnect USB, verify
+adb devices
+```
+
+Tool supports wireless devices automatically (serial will be `192.168.1.100:5555`)
+
+### Port Forwarding
+
+Forward device port to computer:
+
+```bash
+# Forward device:8080 to localhost:8080
+adb forward tcp:8080 tcp:8080
+
+# Use in tool
+code, stdout, stderr = dm.run_command(['forward', 'tcp:8080', 'tcp:8080'])
+```
+
+Useful for accessing device web servers or services.
+
+### Logcat Monitoring
+
+```python
+# Read live logs
+code, stdout, stderr = dm.run_command(['-s', serial, 'logcat', '-d', '-s', 'WhatsApp:V'])
+print(stdout)  # WhatsApp-specific logs
+```
+
+**Filters**:
+- `-d`: Dump and exit (don't follow)
+- `-s <tag>:V`: Show verbose logs for specific tag
+- `-c`: Clear log buffer
+
+## Performance Considerations
+
+### USB 2.0 vs 3.0
+
+- **USB 2.0**: ~40 MB/s transfer speed (sufficient for most backups)
+- **USB 3.0**: ~100+ MB/s (better for large media folders)
+
+Tool works with both. For 10GB+ media dumps, use USB 3.0 ports.
+
+### Parallel Operations
+
+ADB server can handle multiple simultaneous commands:
+
+```python
+import threading
+
+def pull_file(remote, local):
+    dm.run_command(['-s', serial, 'pull', remote, local])
+
+# Pull multiple files concurrently
+threads = [
+    threading.Thread(target=pull_file, args=(f'/sdcard/file{i}.db', f'file{i}.db'))
+    for i in range(5)
+]
+
+for t in threads: t.start()
+for t in threads: t.join()
+```
+
+<Warning>
+Parallel pulls can saturate USB bandwidth. For 5+ concurrent operations, sequential may be faster.
+</Warning>
+
+## Security Considerations
+
+### USB Debugging Risks
+
+<Warning>
+USB debugging grants:
+- **File access**: Read/write to accessible storage
+- **App installation**: Install arbitrary APKs
+- **Shell access**: Execute commands as shell user
+- **Backup/restore**: Extract app data
+
+**Best practices**:
+1. Disable USB debugging when not in use
+2. Only authorize trusted computers
+3. Revoke authorization regularly: Developer Options → "Revoke USB debugging authorizations"
+</Warning>
+
+### Authorization Mechanism
+
+First USB debugging connection requires on-device confirmation. Computer's RSA public key is stored in `/data/misc/adb/adb_keys` on device.
+
+**Revoke all**:
+```bash
+adb shell rm /data/misc/adb/adb_keys
+```
+
+### Man-in-the-Middle Protection
+
+ADB uses RSA key exchange to prevent MitM attacks. The fingerprint shown in the authorization dialog should match the connecting computer.
+
+## Implementation Reference
+
+**File**: `core/device_manager.py`
+
+**Key Methods**:
+- `__init__()`: Initialize manager (line 30)
+- `_get_adb_path()`: Locate ADB executable (line 37)
+- `is_installed()`: Check ADB availability (line 50)
+- `download_adb()`: Auto-download platform tools (line 53)
+- `run_command()`: Execute ADB commands (line 68)
+- `get_devices()`: List connected devices (line 83)
+- `get_detailed_device_info()`: Query device properties (line 92)
+- `check_packages()`: Verify app installation (line 155)
+- `find_backups()`: Scan for backup files (line 163)
+- `dump_backup()`: Pull single file (line 238)
+- `dump_media_with_progress()`: Pull directory with progress (line 254)
+
+**Dependencies**:
+- `subprocess`: Command execution
+- `requests`: Download platform-tools
+- `zipfile`: Extract downloaded archives
+- `tqdm`: Progress bars for large transfers
+
+## Related Documentation
+
+<Card title="Troubleshooting" icon="wrench" href="/advanced/troubleshooting">
+  Solutions for ADB connection issues and common errors
+</Card>
+
+<Card title="Device Setup" icon="mobile" href="/usage/device-setup">
+  Enabling USB debugging and device authorization
+</Card>

@@ -1,0 +1,362 @@
+---
+title: "Viewer"
+description: "SQLite database parser for viewing and exporting WhatsApp chats"
+icon: "database"
+---
+
+## Overview
+
+The `Viewer` class (`core/viewer.py:8`) provides comprehensive functionality for parsing decrypted WhatsApp SQLite databases, retrieving chat conversations, and exporting data in multiple formats (HTML, CSV, JSON, TXT).
+
+## Class Definition
+
+```python core/viewer.py
+class Viewer:
+    """
+    Viewer for decrypted WhatsApp databases.
+    """
+```
+
+## Constructor
+
+### `__init__()`
+
+Initializes the Viewer with a database file path.
+
+```python
+def __init__(self, db_path: str):
+    self.db_path = db_path
+    self.conn = None
+    self.cursor = None
+    self.contact_map = {}
+```
+
+<ParamField path="db_path" type="str" required>
+  Path to the decrypted WhatsApp SQLite database file
+</ParamField>
+
+**Attributes:**
+- `db_path`: Path to the database file
+- `conn`: SQLite connection object (initialized on connect)
+- `cursor`: SQLite cursor for executing queries
+- `contact_map`: Dictionary mapping JIDs to contact display names
+
+## Core Methods
+
+### `connect()`
+
+Establishes a connection to the SQLite database and loads contact information.
+
+```python
+def connect(self) -> bool
+```
+
+<ResponseField name="return" type="bool">
+  True if connection succeeded, False otherwise
+</ResponseField>
+
+**Process:**
+1. Validates database file exists
+2. Creates SQLite connection
+3. Automatically loads contacts from `wa_contacts` table
+4. Returns success status
+
+**Example:**
+
+```python
+from core.viewer import Viewer
+
+viewer = Viewer('msgstore.db.crypt15.decrypted.db')
+if viewer.connect():
+    print("Connected successfully")
+```
+
+### `list_chats()`
+
+Retrieves a list of all chats from the database with metadata.
+
+```python
+def list_chats(self, limit: int = 0) -> List[Dict[str, Any]]
+```
+
+<ParamField path="limit" type="int" default="0">
+  Maximum number of chats to return. 0 returns all chats.
+</ParamField>
+
+<ResponseField name="return" type="List[Dict[str, Any]]">
+  List of chat dictionaries containing:
+  - `id`: Chat row ID (int)
+  - `jid`: Chat JID identifier (str)
+  - `subject`: Chat name/subject (str)
+  - `timestamp`: Last activity timestamp (int)
+</ResponseField>
+
+**Database Compatibility:**
+- **Modern schema**: Uses `chat` table with `jid` table join
+- **Legacy schema**: Falls back to `chat` table only
+
+**Example:**
+
+```python
+chats = viewer.list_chats(limit=20)
+for chat in chats:
+    print(f"{chat['id']}: {chat['subject']} ({chat['jid']})")
+```
+
+### `get_messages()`
+
+Retrieves messages for a specific chat with sender information and media metadata.
+
+```python
+def get_messages(self, chat_id: int, chat_jid: str, limit: int = 100) -> List[Dict[str, Any]]
+```
+
+<ParamField path="chat_id" type="int" required>
+  Chat row ID from the database
+</ParamField>
+
+<ParamField path="chat_jid" type="str" required>
+  Chat JID identifier (e.g., "1234567890@s.whatsapp.net")
+</ParamField>
+
+<ParamField path="limit" type="int" default="100">
+  Maximum number of messages to return. 0 returns all messages.
+</ParamField>
+
+<ResponseField name="return" type="List[Dict[str, Any]]">
+  List of message dictionaries in chronological order containing:
+  - `id`: Message row ID (int)
+  - `text`: Display text with media placeholders (str)
+  - `raw_text`: Original message text without media info (str)
+  - `timestamp`: Unix timestamp in milliseconds (int)
+  - `from_me`: Whether message was sent by account owner (bool)
+  - `sender`: Display name or JID of sender (str)
+  - `jid`: Sender's JID identifier (str)
+  - `media`: Media information dict or None (Dict or None)
+    - `path`: File path to media (str)
+    - `type`: MIME type (str)
+</ResponseField>
+
+**Message Retrieval Strategy:**
+1. Checks `message` table (primary, modern schema)
+2. Falls back to `available_message_view` (view aggregation)
+3. Falls back to `messages` table (legacy schema)
+
+**Contact Resolution:**
+- Resolves sender JIDs to display names using `contact_map`
+- Extracts sender information from `jid` table for group chats
+- Handles both individual and group chat formats
+
+**Example:**
+
+```python
+chat_id = 42
+chat_jid = "1234567890@s.whatsapp.net"
+messages = viewer.get_messages(chat_id, chat_jid, limit=50)
+
+for msg in messages:
+    print(f"[{msg['timestamp']}] {msg['sender']}: {msg['text']}")
+    if msg['media']:
+        print(f"  Media: {msg['media']['type']} at {msg['media']['path']}")
+```
+
+### `get_message_count()`
+
+Returns the total number of messages in the database.
+
+```python
+def get_message_count(self) -> int
+```
+
+<ResponseField name="return" type="int">
+  Total message count across all chats
+</ResponseField>
+
+**Example:**
+
+```python
+total = viewer.get_message_count()
+print(f"Database contains {total} messages")
+```
+
+### `export_chats()`
+
+Exports chat conversations to various file formats.
+
+```python
+def export_chats(self, output_dir: str, output_format='csv', specific_chat_id: int = None)
+```
+
+<ParamField path="output_dir" type="str" required>
+  Directory where export file will be saved
+</ParamField>
+
+<ParamField path="output_format" type="str" default="csv">
+  Export format: `'csv'`, `'json'`, `'txt'`, or `'html'`
+</ParamField>
+
+<ParamField path="specific_chat_id" type="int" default="None">
+  Export only a specific chat by ID. None exports all chats.
+</ParamField>
+
+**Export Formats:**
+
+- **CSV**: Flat format with columns: ID, Chat JID, Chat Name, Timestamp, Message Timestamp, Sender, Message
+- **JSON**: Hierarchical format with nested messages in each chat object
+- **TXT**: Human-readable plain text with formatted timestamps
+- **HTML**: WhatsApp-styled web page with bubbles, colors, and media links
+
+**HTML Features:**
+- WhatsApp-inspired UI with message bubbles
+- Sent/received message styling
+- Group chat sender colors (19 distinct colors)
+- Date dividers
+- Media support (images, videos, audio, documents)
+- Sticky chat header
+- Mobile responsive design
+
+**Example:**
+
+```python
+# Export all chats as HTML
+viewer.export_chats('exports/', output_format='html')
+
+# Export specific chat as JSON
+viewer.export_chats('exports/', output_format='json', specific_chat_id=42)
+
+# Export all as CSV
+viewer.export_chats('exports/', output_format='csv')
+```
+
+### `close()`
+
+Closes the database connection.
+
+```python
+def close()
+```
+
+**Example:**
+
+```python
+viewer.close()
+```
+
+## Internal Methods
+
+### `_load_contacts()`
+
+Loads contact names from the `wa_contacts` table into the `contact_map`.
+
+```python
+def _load_contacts(self)
+```
+
+**Process:**
+1. Checks if `wa_contacts` table exists
+2. Detects available name columns (`display_name` or `wa_name`)
+3. Populates `contact_map` dictionary with JID → name mappings
+4. Called automatically during `connect()`
+
+### `_export_html()`
+
+Generates WhatsApp-styled HTML export with embedded CSS.
+
+```python
+def _export_html(self, chats, filename)
+```
+
+<ParamField path="chats" type="List[Dict]" required>
+  List of chat dictionaries from `list_chats()`
+</ParamField>
+
+<ParamField path="filename" type="str" required>
+  Output HTML file path
+</ParamField>
+
+**HTML Features:**
+- Responsive WhatsApp UI design
+- Message bubble styling (green for sent, white for received)
+- Date dividers between different days
+- Group chat sender color coding
+- Media embed support (images, videos, audio)
+- Sticky header with chat metadata
+
+## Database Schema Compatibility
+
+The Viewer supports multiple WhatsApp database schemas:
+
+**Modern Schema (crypt14/15):**
+- `chat` table with `jid_row_id` foreign key
+- `jid` table for user/server information
+- `message` table with `sender_jid_row_id`
+- `message_media` table for media metadata
+- `wa_contacts` table for contact names
+
+**Legacy Schema (crypt12):**
+- `messages` table with `key_remote_jid`
+- Direct JID strings instead of table joins
+- Limited media metadata
+
+## Complete Usage Example
+
+```python
+from core.viewer import Viewer
+
+# Initialize and connect
+viewer = Viewer('backups/msgstore.db.crypt15.decrypted.db')
+if not viewer.connect():
+    print("Failed to connect")
+    exit(1)
+
+# List recent chats
+print("Recent chats:")
+chats = viewer.list_chats(limit=10)
+for i, chat in enumerate(chats, 1):
+    msg_count = len(viewer.get_messages(chat['id'], chat['jid'], limit=0))
+    print(f"{i}. {chat['subject']} - {msg_count} messages")
+
+# View specific chat
+if chats:
+    selected_chat = chats[0]
+    print(f"\nViewing: {selected_chat['subject']}")
+    
+    messages = viewer.get_messages(
+        selected_chat['id'],
+        selected_chat['jid'],
+        limit=20
+    )
+    
+    for msg in messages:
+        timestamp = msg['timestamp']
+        sender = msg['sender']
+        text = msg['text'][:100]  # Truncate for display
+        print(f"[{timestamp}] {sender}: {text}")
+
+# Export all chats
+viewer.export_chats('exports/', output_format='html')
+
+# Get statistics
+total_messages = viewer.get_message_count()
+print(f"\nTotal messages in database: {total_messages}")
+
+# Clean up
+viewer.close()
+```
+
+## Related
+
+<CardGroup cols={2}>
+  <Card title="Viewing Chats" icon="comments" href="/features/viewing">
+    Learn how to browse WhatsApp conversations
+  </Card>
+  <Card title="Export Formats" icon="file-export" href="/features/export">
+    Understanding export options
+  </Card>
+  <Card title="Database Schema" icon="table" href="/advanced/database-schema">
+    WhatsApp database structure reference
+  </Card>
+  <Card title="CryptoManager" icon="lock" href="/api/crypto-manager">
+    Decrypt backups before viewing
+  </Card>
+</CardGroup>

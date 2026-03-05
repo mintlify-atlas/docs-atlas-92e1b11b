@@ -1,0 +1,331 @@
+---
+title: 'Key Management'
+description: 'Deep dive into encryption key storage, security, and management'
+icon: 'key'
+---
+
+## Overview
+
+The WhatsApp Forensic Tool implements a sophisticated key management system to securely store and retrieve decryption keys. This system protects sensitive encryption keys using machine-specific encryption, preventing unauthorized access even if the key storage file is copied to another machine.
+
+## Key Storage Architecture
+
+### Storage Location
+
+Keys are stored in a centralized, OS-specific application data directory:
+
+- **Windows**: `%LOCALAPPDATA%\WhatsAppForensicTool\keys.json`
+- **macOS**: `~/Library/Application Support/WhatsAppForensicTool/keys.json`
+- **Linux**: `~/.config/WhatsAppForensicTool/keys.json`
+
+This location is determined by the `get_app_data_path()` utility function in `core/utils.py:74-91`.
+
+<Note>
+The key file is stored outside the tool's installation directory to persist across updates and prevent accidental deletion.
+</Note>
+
+### File Structure
+
+The `keys.json` file uses a hierarchical structure:
+
+```json
+{
+  "device_serial_123": {
+    "com.whatsapp": "64-char-hex-key-for-whatsapp",
+    "com.whatsapp.w4b": "64-char-hex-key-for-business"
+  },
+  "device_serial_456": {
+    "com.whatsapp": "another-64-char-hex-key"
+  }
+}
+```
+
+Keys are organized by:
+1. **Device ID**: ADB serial number or device identifier
+2. **Package Name**: Either `com.whatsapp` or `com.whatsapp.w4b`
+
+## Machine-Specific Encryption
+
+### Storage Key Derivation
+
+The tool derives a machine-specific encryption key to protect the stored keys. This is implemented in `CryptoManager._get_storage_key()` at `core/crypto_manager.py:33-43`:
+
+```python
+def _get_storage_key(self) -> bytes:
+    # Get machine-unique ID (MAC address based)
+    node_id = str(uuid.getnode())
+    # Hardcoded salt for consistent derivation
+    salt = b"WhatsAppForensicTool_Storage_Salt" 
+    return PBKDF2(node_id, salt, dkLen=32, count=100000)
+```
+
+**Key derivation process:**
+
+1. **Machine ID**: Uses `uuid.getnode()` to obtain MAC address-based unique identifier
+2. **Salt**: Hardcoded application salt ensures consistent derivation
+3. **PBKDF2**: Key derivation with 100,000 iterations for computational hardness
+4. **Output**: 256-bit (32-byte) AES key
+
+<Warning>
+The storage key is machine-specific. Copying `keys.json` to another machine will not work—the file will fail to decrypt.
+</Warning>
+
+### AES-GCM Encryption
+
+The key file is encrypted using **AES-256-GCM** (Galois/Counter Mode), providing both confidentiality and authenticity.
+
+#### Encryption Process (`_encrypt_data` at line 45-49)
+
+```python
+def _encrypt_data(self, data: bytes) -> bytes:
+    nonce = get_random_bytes(12)  # 96-bit nonce
+    cipher = AES.new(self.storage_key, AES.MODE_GCM, nonce=nonce)
+    ciphertext, tag = cipher.encrypt_and_digest(data)
+    return nonce + tag + ciphertext  # 12 + 16 + variable bytes
+```
+
+**File format:**
+- Bytes 0-11: Nonce (12 bytes)
+- Bytes 12-27: Authentication tag (16 bytes)
+- Bytes 28+: Encrypted JSON data
+
+#### Decryption Process (`_decrypt_data` at line 51-59)
+
+```python
+def _decrypt_data(self, data: bytes) -> bytes:
+    try:
+        nonce = data[:12]
+        tag = data[12:28]
+        ciphertext = data[28:]
+        cipher = AES.new(self.storage_key, AES.MODE_GCM, nonce=nonce)
+        return cipher.decrypt_and_verify(ciphertext, tag)
+    except Exception:
+        return b"{}"  # Return empty JSON on failure
+```
+
+The `decrypt_and_verify` method ensures data integrity—tampering with the file will cause decryption to fail.
+
+## Key Migration System
+
+### Legacy to Encrypted Migration
+
+The tool automatically migrates plaintext keys to encrypted storage on first run. This process is handled by `_migrate_keys()` at `core/crypto_manager.py:61-91`.
+
+#### Migration Steps
+
+**Step 1: Local Plaintext File Migration**
+
+If `keys.json` exists in the current directory (legacy location):
+
+```python
+if os.path.exists(local_keys):
+    with open(local_keys, 'r') as f: 
+        old_keys = json.load(f)
+    
+    current_keys = self._load_keys()
+    current_keys.update(old_keys)  # Merge with existing
+    
+    self._save_keys_internal(current_keys)  # Save encrypted
+    os.rename(local_keys, local_keys + ".bak")  # Backup
+```
+
+**Step 2: AppData Plaintext Check**
+
+If the AppData file exists but contains plaintext JSON:
+
+```python
+with open(self.KEY_FILE, 'rb') as f: 
+    content = f.read()
+if content.strip().startswith(b'{'):  # Plaintext JSON detection
+    keys = json.loads(content.decode('utf-8'))
+    self._save_keys_internal(keys)  # Re-save as encrypted
+```
+
+<Info>
+Migration is automatic and idempotent. Running the tool multiple times will not cause issues.
+</Info>
+
+## Core Methods
+
+### save_key()
+
+**Location**: `core/crypto_manager.py:114-118`
+
+```python
+def save_key(self, device_id: str, package: str, key: str):
+    if device_id not in self.keys: 
+        self.keys[device_id] = {}
+    self.keys[device_id][package] = key
+    self._save_keys_internal(self.keys)
+    print_success(f"Key saved securely for {device_id} ({package})")
+```
+
+**Usage:**
+- Called automatically after successful decryption (`main.py:434`)
+- Keys are saved immediately (no manual "save" action required)
+- Overwrites existing keys for the same device/package combination
+
+### get_key()
+
+**Location**: `core/crypto_manager.py:121-123`
+
+```python
+def get_key(self, device_id: str, package: str) -> Optional[str]:
+    if device_id in self.keys: 
+        return self.keys[device_id].get(package)
+    return None
+```
+
+**Usage:**
+- Called before prompting user for a key (`main.py:408`)
+- Returns `None` if key not found
+- Automatically tries saved key first during decryption
+
+## Security Considerations
+
+### Strengths
+
+1. **Machine Binding**: Keys cannot be used on different machines
+2. **AES-GCM**: Provides both encryption and authentication
+3. **PBKDF2**: Computational hardness against brute force
+4. **Automatic Migration**: Users don't need to manually secure old keys
+
+### Limitations
+
+<Warning>
+This system protects against:
+- File theft (keys unusable on other machines)
+- Casual inspection (file is encrypted, not plaintext)
+
+It does NOT protect against:
+- **Root/Admin access**: Attacker with admin rights can extract machine ID and decrypt
+- **Process memory inspection**: Keys exist in plaintext in RAM during operation
+- **Keyloggers**: Keys entered manually can be captured
+</Warning>
+
+### Enterprise Considerations
+
+For production forensic environments, consider:
+
+1. **Hardware Security Modules (HSM)**: Store keys in dedicated hardware
+2. **OS Keyring Integration**: Use Windows Credential Manager, macOS Keychain, or Linux Secret Service
+3. **Multi-factor Authentication**: Require additional authentication before key access
+4. **Audit Logging**: Log all key access events
+
+## Manual Key Management
+
+### Viewing Stored Keys
+
+To inspect stored keys (for debugging or auditing):
+
+```python
+from core.crypto_manager import CryptoManager
+
+cm = CryptoManager()
+print(cm.keys)  # Dictionary of all keys
+```
+
+### Manual Key Deletion
+
+```python
+from core.crypto_manager import CryptoManager
+import os
+
+cm = CryptoManager()
+
+# Delete specific key
+if "device_serial" in cm.keys:
+    del cm.keys["device_serial"]["com.whatsapp"]
+    cm._save_keys_internal(cm.keys)
+
+# Or delete entire file
+os.remove(cm.KEY_FILE)
+```
+
+<Warning>
+Deleting keys is permanent. You will need to re-enter them manually.
+</Warning>
+
+### Exporting Keys (Backup)
+
+```python
+from core.crypto_manager import CryptoManager
+import json
+
+cm = CryptoManager()
+
+# Export to plaintext (KEEP SECURE!)
+with open('keys_backup.json', 'w') as f:
+    json.dump(cm.keys, f, indent=2)
+```
+
+### Importing Keys
+
+```python
+from core.crypto_manager import CryptoManager
+import json
+
+cm = CryptoManager()
+
+# Import from backup
+with open('keys_backup.json', 'r') as f:
+    imported_keys = json.load(f)
+
+cm.keys.update(imported_keys)
+cm._save_keys_internal(cm.keys)
+```
+
+## Troubleshooting
+
+### "Failed to decrypt" on Key Load
+
+**Cause**: `keys.json` was copied from another machine or corrupted.
+
+**Solution**: Delete the file and re-enter keys:
+
+```bash
+# Windows
+del %LOCALAPPDATA%\WhatsAppForensicTool\keys.json
+
+# macOS/Linux
+rm ~/.config/WhatsAppForensicTool/keys.json
+```
+
+### Keys Not Persisting
+
+**Cause**: Permission issues writing to AppData directory.
+
+**Solution**: Run tool with appropriate permissions or check directory ownership:
+
+```bash
+# Linux/macOS
+ls -la ~/.config/WhatsAppForensicTool/
+chmod 700 ~/.config/WhatsAppForensicTool/
+```
+
+### "Saved key failed" During Decryption
+
+**Cause**: Saved key is for wrong backup version or corrupt.
+
+**Solution**: Delete the specific key and re-enter manually. The tool will prompt for a new key.
+
+## Implementation Reference
+
+**File**: `core/crypto_manager.py`
+
+**Key Functions**:
+- `__init__()`: Initializes manager, loads keys (line 26)
+- `_get_storage_key()`: Derives machine-specific key (line 33)
+- `_encrypt_data()`: AES-GCM encryption (line 45)
+- `_decrypt_data()`: AES-GCM decryption (line 51)
+- `_migrate_keys()`: Legacy key migration (line 61)
+- `_save_keys_internal()`: Save encrypted key file (line 93)
+- `_load_keys()`: Load and decrypt key file (line 101)
+- `save_key()`: Store new key (line 114)
+- `get_key()`: Retrieve stored key (line 121)
+
+**Dependencies**:
+- `Crypto.Cipher.AES`: AES encryption
+- `Crypto.Protocol.KDF.PBKDF2`: Key derivation
+- `Crypto.Random.get_random_bytes`: Nonce generation
+- `uuid.getnode()`: Machine ID extraction

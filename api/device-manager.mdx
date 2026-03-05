@@ -1,0 +1,430 @@
+---
+title: "DeviceManager"
+description: "ADB management, device scanning, and file operations"
+icon: "mobile"
+---
+
+## Overview
+
+The `DeviceManager` class (`core/device_manager.py:13`) handles all ADB operations including device detection, file extraction, and backup dumping from Android devices.
+
+## Class Definition
+
+```python core/device_manager.py
+class DeviceManager:
+    """
+    Consolidated class for ADB management, Device Scanning, and File Dumping.
+    Replaces AdbManager, Scanner, and Dumper.
+    """
+    
+    ADB_URLS = {
+        'windows': 'https://dl.google.com/android/repository/platform-tools-latest-windows.zip',
+        'linux': 'https://dl.google.com/android/repository/platform-tools-latest-linux.zip',
+        'darwin': 'https://dl.google.com/android/repository/platform-tools-latest-darwin.zip'
+    }
+    
+    WHATSAPP_PACKAGES = {
+        'com.whatsapp': 'WhatsApp Messenger',
+        'com.whatsapp.w4b': 'WhatsApp Business'
+    }
+```
+
+## Constructor
+
+### `__init__()`
+
+```python
+def __init__(self, adb_dir: str = "adb", output_dir: str = "backups")
+```
+
+<ParamField path="adb_dir" type="str" default="adb">
+  Directory where ADB binaries are stored/downloaded
+</ParamField>
+
+<ParamField path="output_dir" type="str" default="backups">
+  Directory where extracted backups will be saved
+</ParamField>
+
+**Attributes:**
+- `adb_dir`: Absolute path to ADB directory
+- `output_dir`: Output directory for backups
+- `os_type`: Detected OS (windows, linux, darwin)
+- `adb_executable`: Path to adb executable
+
+## ADB Management
+
+### `is_installed()`
+
+Checks if ADB is installed and accessible.
+
+```python
+def is_installed(self) -> bool
+```
+
+<ResponseField name="return" type="bool">
+  True if ADB executable exists and is accessible
+</ResponseField>
+
+### `download_adb()`
+
+Automatically downloads platform-specific ADB binaries.
+
+```python
+def download_adb(self)
+```
+
+**Process:**
+1. Detects operating system
+2. Downloads from `ADB_URLS[os_type]`
+3. Extracts to `adb_dir`
+4. Sets executable permissions (Unix)
+5. Updates `adb_executable` path
+
+### `run_command()`
+
+Executes an ADB command and returns the result.
+
+```python
+def run_command(self, args: List[str]) -> Tuple[int, str, str]
+```
+
+<ParamField path="args" type="List[str]" required>
+  List of ADB command arguments (e.g., ['devices'], ['-s', 'serial', 'shell', 'ls'])
+</ParamField>
+
+<ResponseField name="return" type="Tuple[int, str, str]">
+  (return_code, stdout, stderr)
+</ResponseField>
+
+**Example:**
+
+```python
+device_mgr = DeviceManager()
+code, output, error = device_mgr.run_command(['devices'])
+if code == 0:
+    print(output)
+```
+
+## Device Discovery
+
+### `get_devices()`
+
+Returns a list of connected Android devices.
+
+```python
+def get_devices(self) -> List[str]
+```
+
+<ResponseField name="return" type="List[str]">
+  List of device serial numbers
+</ResponseField>
+
+**Example:**
+
+```python
+devices = device_mgr.get_devices()
+for serial in devices:
+    print(f"Found device: {serial}")
+```
+
+### `get_detailed_device_info()`
+
+Retrieves comprehensive device information.
+
+```python
+def get_detailed_device_info(self, serial: str) -> dict
+```
+
+<ParamField path="serial" type="str" required>
+  Device serial number
+</ParamField>
+
+<ResponseField name="return" type="dict">
+  Dictionary containing device properties:
+  - Model, Brand, Manufacturer, Device, Board
+  - Android Version, SDK, Security Patch
+  - Battery level, RAM (Total/Available)
+  - Storage (Total/Used/Free)
+  - WhatsApp Installations
+</ResponseField>
+
+**Example:**
+
+```python
+info = device_mgr.get_detailed_device_info("RF8N70PQRST")
+print(f"Model: {info['Model']}")
+print(f"Android: {info['Android Version']}")
+print(f"Battery: {info['Battery']}")
+```
+
+### `get_users()`
+
+Retrieves user profiles from the device.
+
+```python
+def get_users(self, device_id: str) -> List[Dict[str, str]]
+```
+
+<ParamField path="device_id" type="str" required>
+  Device serial number
+</ParamField>
+
+<ResponseField name="return" type="List[Dict[str, str]]">
+  List of user dictionaries with 'id' and 'name' keys
+</ResponseField>
+
+**Example:**
+
+```python
+users = device_mgr.get_users("RF8N70PQRST")
+for user in users:
+    print(f"User {user['id']}: {user['name']}")
+```
+
+### `check_packages()`
+
+Checks which WhatsApp packages are installed.
+
+```python
+def check_packages(self, device_id: str) -> List[str]
+```
+
+<ParamField path="device_id" type="str" required>
+  Device serial number
+</ParamField>
+
+<ResponseField name="return" type="List[str]">
+  List of installed package names (com.whatsapp, com.whatsapp.w4b)
+</ResponseField>
+
+## Backup Discovery
+
+### `find_backups()`
+
+Scans device storage for WhatsApp backup files.
+
+```python
+def find_backups(self, device_id: str, user_id: str, package: str) -> List[Dict[str, str]]
+```
+
+<ParamField path="device_id" type="str" required>
+  Device serial number
+</ParamField>
+
+<ParamField path="user_id" type="str" required>
+  User profile ID (usually "0" for primary user)
+</ParamField>
+
+<ParamField path="package" type="str" required>
+  Package name (com.whatsapp or com.whatsapp.w4b)
+</ParamField>
+
+<ResponseField name="return" type="List[Dict[str, str]]">
+  List of backup dictionaries containing:
+  - path: Full device path to backup file
+  - name: Filename (e.g., msgstore.db.crypt15)
+  - size: Human-readable file size
+</ResponseField>
+
+**Search Paths:**
+- Legacy: `/sdcard/WhatsApp/Databases`
+- Android 11+: `/sdcard/Android/media/com.whatsapp/WhatsApp/Databases`
+
+### `find_media()`
+
+Locates WhatsApp Media folder on device.
+
+```python
+def find_media(self, device_id: str, user_id: str, package: str) -> str
+```
+
+<ParamField path="device_id" type="str" required>
+  Device serial number
+</ParamField>
+
+<ParamField path="user_id" type="str" required>
+  User profile ID
+</ParamField>
+
+<ParamField path="package" type="str" required>
+  Package name
+</ParamField>
+
+<ResponseField name="return" type="str">
+  Path to Media folder, or empty string if not found
+</ResponseField>
+
+## File Operations
+
+### `dump_backup()`
+
+Pulls a backup file from device to local storage.
+
+```python
+def dump_backup(
+    self, 
+    device_id: str, 
+    remote_path: str, 
+    user_id: str, 
+    package_type: str, 
+    verbose: bool = True
+) -> str
+```
+
+<ParamField path="device_id" type="str" required>
+  Device serial number
+</ParamField>
+
+<ParamField path="remote_path" type="str" required>
+  Full path to backup file on device
+</ParamField>
+
+<ParamField path="user_id" type="str" required>
+  User profile ID
+</ParamField>
+
+<ParamField path="package_type" type="str" required>
+  "messenger" or "business"
+</ParamField>
+
+<ParamField path="verbose" type="bool" default="True">
+  Print status messages
+</ParamField>
+
+<ResponseField name="return" type="str">
+  Local path to dumped file, or empty string on failure
+</ResponseField>
+
+**Output Structure:**
+```
+backups/
+  {device_id}/
+    user_{user_id}/
+      {package_type}/
+        msgstore.db.crypt15
+```
+
+### `dump_media_with_progress()`
+
+Pulls entire Media folder with progress tracking.
+
+```python
+def dump_media_with_progress(
+    self, 
+    device_id: str, 
+    remote_path: str, 
+    local_dir: str
+) -> bool
+```
+
+<ParamField path="device_id" type="str" required>
+  Device serial number
+</ParamField>
+
+<ParamField path="remote_path" type="str" required>
+  Path to Media folder on device
+</ParamField>
+
+<ParamField path="local_dir" type="str" required>
+  Local directory to save media files
+</ParamField>
+
+<ResponseField name="return" type="bool">
+  True if successful, False otherwise
+</ResponseField>
+
+**Features:**
+- Counts total files before transfer
+- Shows progress bar with tqdm
+- Preserves directory structure
+- Handles large media collections
+
+## Constants
+
+### `ADB_URLS`
+
+Download URLs for platform-specific ADB binaries.
+
+```python
+ADB_URLS = {
+    'windows': 'https://dl.google.com/android/repository/platform-tools-latest-windows.zip',
+    'linux': 'https://dl.google.com/android/repository/platform-tools-latest-linux.zip',
+    'darwin': 'https://dl.google.com/android/repository/platform-tools-latest-darwin.zip'
+}
+```
+
+### `WHATSAPP_PACKAGES`
+
+Supported WhatsApp package identifiers.
+
+```python
+WHATSAPP_PACKAGES = {
+    'com.whatsapp': 'WhatsApp Messenger',
+    'com.whatsapp.w4b': 'WhatsApp Business'
+}
+```
+
+## Usage Example
+
+```python
+from core.device_manager import DeviceManager
+
+# Initialize manager
+device_mgr = DeviceManager()
+
+# Ensure ADB is available
+if not device_mgr.is_installed():
+    print("Downloading ADB...")
+    device_mgr.download_adb()
+
+# Get connected devices
+devices = device_mgr.get_devices()
+if not devices:
+    print("No devices found")
+    exit(1)
+
+serial = devices[0]
+print(f"Using device: {serial}")
+
+# Get device info
+info = device_mgr.get_detailed_device_info(serial)
+print(f"Model: {info['Model']}")
+print(f"Android: {info['Android Version']}")
+
+# Find backups
+users = device_mgr.get_users(serial)
+packages = device_mgr.check_packages(serial)
+
+for user in users:
+    for pkg in packages:
+        backups = device_mgr.find_backups(serial, user['id'], pkg)
+        for backup in backups:
+            print(f"Found: {backup['name']} ({backup['size']})")
+            
+            # Dump backup
+            pkg_type = "messenger" if pkg == "com.whatsapp" else "business"
+            local_path = device_mgr.dump_backup(
+                serial,
+                backup['path'],
+                user['id'],
+                pkg_type
+            )
+            print(f"Saved to: {local_path}")
+```
+
+## Related
+
+<CardGroup cols={2}>
+  <Card title="Device Scanning" icon="radar" href="/features/device-scanning">
+    Learn about device detection and scanning
+  </Card>
+  <Card title="Backup Extraction" icon="download" href="/features/backup-extraction">
+    Extract backups from devices
+  </Card>
+  <Card title="ADB Operations" icon="terminal" href="/advanced/adb-operations">
+    Advanced ADB usage and troubleshooting
+  </Card>
+  <Card title="Platform Guides" icon="computer" href="/guides/windows">
+    Platform-specific setup instructions
+  </Card>
+</CardGroup>

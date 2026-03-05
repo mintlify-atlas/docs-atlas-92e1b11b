@@ -1,0 +1,434 @@
+---
+title: Installation
+description: Step-by-step guide to install the WhatsApp Forensic Tool on Windows, Linux, macOS, or Android
+---
+
+## Prerequisites
+
+The tool is designed for zero-configuration installation, but ensure you meet these minimal requirements:
+
+<CardGroup cols={2}>
+  <Card title="Python 3.8+" icon="python">
+    The launcher scripts will attempt to install Python automatically if missing
+  </Card>
+  <Card title="USB Debugging" icon="usb">
+    Must be enabled on the target Android device (Settings → Developer Options → USB Debugging)
+  </Card>
+  <Card title="Git" icon="git">
+    Required to clone the repository (or download as ZIP)
+  </Card>
+  <Card title="Internet Connection" icon="wifi">
+    Needed for initial setup to download dependencies and ADB tools
+  </Card>
+</CardGroup>
+
+<Note>
+  The launcher scripts (`start.bat` and `start.sh`) handle all dependency installation automatically. No manual configuration is required.
+</Note>
+
+## Installation by Platform
+
+<Tabs>
+  <Tab title="Windows">
+    ### Windows Installation
+
+    <Steps>
+      <Step title="Clone the Repository">
+        Open Command Prompt or PowerShell and clone the repository:
+        
+        ```bash
+        git clone https://github.com/cedroid/whatsapp-forensic-tool.git
+        cd whatsapp-forensic-tool
+        ```
+      </Step>
+
+      <Step title="Run the Launcher">
+        Double-click `start.bat` or run it from the command line:
+        
+        ```cmd
+        start.bat
+        ```
+        
+        The launcher will automatically:
+        - Check for Python installation (opens download page if missing)
+        - Create a virtual environment in `venv/`
+        - Install all Python dependencies from `requirements.txt`
+        - Download ADB platform tools for Windows
+        - Launch the application
+      </Step>
+
+      <Step title="Verify Installation">
+        If successful, you'll see the main menu:
+        
+        ```
+        ===========================================
+          WhatsApp Backup Forensic Tool Launcher
+        ===========================================
+        [*] Activating virtual environment...
+        [*] Checking dependencies...
+        [*] Starting Application...
+        
+        Main Menu
+        1. Scan Connected Devices
+        2. Dump Backups from Device
+        3. Decrypt Existing Backup
+        4. View Decrypted Database
+        5. Export Chats
+        6. Deploy to Termux (Downloads)
+        7. Exit
+        ```
+      </Step>
+    </Steps>
+
+    <Info>
+      If Python is not installed, the script will open the Python download page at https://www.python.org/downloads/. Install Python with "Add to PATH" enabled.
+    </Info>
+  </Tab>
+
+  <Tab title="Linux">
+    ### Linux Installation
+
+    <Steps>
+      <Step title="Clone the Repository">
+        Open a terminal and clone the repository:
+        
+        ```bash
+        git clone https://github.com/cedroid/whatsapp-forensic-tool.git
+        cd whatsapp-forensic-tool
+        ```
+      </Step>
+
+      <Step title="Run the Launcher">
+        Execute the launcher script:
+        
+        ```bash
+        bash start.sh
+        ```
+        
+        The launcher will automatically:
+        - Check for Python 3 installation
+        - Attempt to install Python 3 via `apt-get` if missing (requires sudo)
+        - Create a virtual environment in `venv/`
+        - Install all Python dependencies
+        - Download ADB platform tools for Linux
+        - Launch the application
+      </Step>
+
+      <Step title="Grant Permissions (if needed)">
+        If you encounter permission issues with ADB, add your user to the `plugdev` group:
+        
+        ```bash
+        sudo usermod -aG plugdev $USER
+        sudo udevadm control --reload-rules
+        ```
+        
+        Log out and log back in for the changes to take effect.
+      </Step>
+    </Steps>
+
+    <Warning>
+      On first run, the script may prompt for sudo password to install Python 3 via `apt-get update && apt-get install -y python3 python3-venv python3-pip`.
+    </Warning>
+  </Tab>
+
+  <Tab title="macOS">
+    ### macOS Installation
+
+    <Steps>
+      <Step title="Install Homebrew (if not installed)">
+        Homebrew is recommended for managing Python on macOS:
+        
+        ```bash
+        /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+        ```
+      </Step>
+
+      <Step title="Clone the Repository">
+        Open Terminal and clone the repository:
+        
+        ```bash
+        git clone https://github.com/cedroid/whatsapp-forensic-tool.git
+        cd whatsapp-forensic-tool
+        ```
+      </Step>
+
+      <Step title="Run the Launcher">
+        Execute the launcher script:
+        
+        ```bash
+        bash start.sh
+        ```
+        
+        The launcher will:
+        - Check for Python 3 installation
+        - Prompt you to install Python 3 via Homebrew if missing
+        - Create a virtual environment
+        - Install dependencies
+        - Download ADB platform tools for macOS
+        - Launch the application
+      </Step>
+    </Steps>
+
+    <Info>
+      If Python 3 is not found, install it manually with: `brew install python3`
+    </Info>
+  </Tab>
+
+  <Tab title="Android (Termux)">
+    ### Android (Termux) Installation
+
+    Running directly on Android provides access to internal storage without requiring root access.
+
+    <Steps>
+      <Step title="Install Termux">
+        Install Termux from F-Droid (recommended) or GitHub releases:
+        
+        - **F-Droid**: https://f-droid.org/packages/com.termux/
+        - **GitHub**: https://github.com/termux/termux-app/releases
+        
+        <Warning>
+          Do not use the Google Play Store version as it's outdated and unsupported.
+        </Warning>
+      </Step>
+
+      <Step title="Deploy from PC (Recommended)">
+        The easiest method is to deploy from your PC:
+        
+        1. Connect your phone to PC via USB
+        2. Enable USB debugging on your phone
+        3. Run the tool on PC and select **"Deploy to Termux (Downloads)"** (option 6)
+        4. The tool will copy all files to `/sdcard/Download/whatsapp-forensic-tool`
+      </Step>
+
+      <Step title="Setup in Termux">
+        Open the Termux app on your phone and run:
+        
+        ```bash
+        # Copy from Downloads to Termux home
+        cp -r /sdcard/Download/whatsapp-forensic-tool $HOME
+        cd $HOME/whatsapp-forensic-tool
+        
+        # Run the launcher
+        bash start.sh
+        ```
+        
+        The script will:
+        - Detect Termux environment automatically
+        - Setup storage access permissions (follow prompts)
+        - Install Python if missing via `pkg install python`
+        - Install dependencies
+        - Launch the application
+      </Step>
+
+      <Step title="Grant Storage Permissions">
+        When prompted, grant storage permissions to Termux. This allows access to WhatsApp backup files in internal storage.
+        
+        ```bash
+        # If not prompted automatically, run:
+        termux-setup-storage
+        ```
+      </Step>
+    </Steps>
+
+    <Info>
+      Running on Termux provides direct access to `/storage/emulated/0/` directories where WhatsApp stores backups, bypassing ADB limitations.
+    </Info>
+  </Tab>
+</Tabs>
+
+## Understanding the Launcher Scripts
+
+### Windows Launcher (`start.bat`)
+
+The Windows launcher performs these operations:
+
+```batch
+# Check Python installation
+python --version >nul 2>&1
+
+# Create virtual environment if not exists
+if not exist "venv" (
+    python -m venv venv
+)
+
+# Activate virtual environment
+call venv\Scripts\activate
+
+# Install dependencies
+pip install -r requirements.txt
+
+# Run application
+python main.py
+```
+
+### Linux/macOS Launcher (`start.sh`)
+
+The Unix launcher includes automatic Python installation:
+
+```bash
+# Check for Python 3
+if ! command -v python3 &> /dev/null; then
+    # Linux: Install via apt
+    sudo apt-get update && sudo apt-get install -y python3 python3-venv python3-pip
+    
+    # macOS: Prompt for Homebrew installation
+    # brew install python3
+fi
+
+# Create and activate virtual environment
+python3 -m venv venv
+source venv/bin/activate
+
+# Install dependencies and run
+pip install -r requirements.txt
+python main.py
+```
+
+### Termux Launcher (same `start.sh`)
+
+The script detects Termux automatically:
+
+```bash
+# Detect Termux environment
+if [[ -n "$PREFIX" && "$PREFIX" == *"com.termux"* ]]; then
+    # Setup storage access
+    termux-setup-storage
+    
+    # Install Python via Termux packages
+    pkg update -y && pkg install -y python
+    
+    # Install dependencies directly (no venv in Termux)
+    pip install -r requirements.txt
+    python main.py
+fi
+```
+
+## Automatic Dependency Installation
+
+The tool automatically installs these Python packages:
+
+| Package | Purpose |
+|---------|--------|
+| **pycryptodome** | AES-GCM encryption/decryption |
+| **requests** | Download ADB platform tools |
+| **rich** | Terminal UI with colors and progress bars |
+| **tqdm** | Progress bars for file operations |
+| **thefuzz** | Fuzzy search for chat filtering |
+
+<Note>
+  All dependencies are installed in an isolated virtual environment (except on Termux) to avoid conflicts with system packages.
+</Note>
+
+## ADB Setup (PC Only)
+
+On PC platforms, the tool automatically downloads ADB platform tools:
+
+<CodeGroup>
+```python Device Manager - ADB Download
+# From device_manager.py:53-66
+def download_adb(self):
+    url = self.ADB_URLS.get(self.os_type)
+    if not url: return
+    print_info(f"Downloading ADB for {self.os_type}...")
+    try:
+        response = requests.get(url, stream=True)
+        with zipfile.ZipFile(io.BytesIO(response.content)) as z:
+            z.extractall(self.adb_dir)
+        self.adb_executable = self._get_adb_path()
+        if self.os_type != 'windows' and self.adb_executable:
+            os.chmod(self.adb_executable, 0o755)
+        print_success("ADB setup complete.")
+    except Exception as e:
+        print_error(f"Failed to download ADB: {e}")
+```
+
+```python ADB URLs by Platform
+# From device_manager.py:19-23
+ADB_URLS = {
+    'windows': 'https://dl.google.com/android/repository/platform-tools-latest-windows.zip',
+    'linux': 'https://dl.google.com/android/repository/platform-tools-latest-linux.zip',
+    'darwin': 'https://dl.google.com/android/repository/platform-tools-latest-darwin.zip'
+}
+```
+</CodeGroup>
+
+ADB is downloaded to `./adb/platform-tools/` in the project directory and does not require system installation.
+
+## Verify Installation
+
+To confirm successful installation, check for these indicators:
+
+<Steps>
+  <Step title="Application Launches">
+    The main menu should display with all 7 options (PC) or 6 options (Termux).
+  </Step>
+  
+  <Step title="Status Bar Visible">
+    At the top of the screen, you should see:
+    - Mode: ADB or Termux
+    - ADB: Installed or N/A (Local)
+    - Device: None (will update after scanning)
+    - Key: None (will update after decryption)
+  </Step>
+  
+  <Step title="Virtual Environment Active">
+    Check that dependencies are isolated:
+    
+    ```bash
+    # Windows
+    where python
+    # Should show: .\venv\Scripts\python.exe
+    
+    # Linux/macOS
+    which python
+    # Should show: ./venv/bin/python
+    ```
+  </Step>
+</Steps>
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Python not found on Windows">
+    Download Python from https://www.python.org/downloads/ and ensure "Add Python to PATH" is checked during installation.
+  </Accordion>
+  
+  <Accordion title="Permission denied on Linux/macOS">
+    Make the launcher executable:
+    
+    ```bash
+    chmod +x start.sh
+    bash start.sh
+    ```
+  </Accordion>
+  
+  <Accordion title="ADB download fails">
+    Manually download ADB platform tools from https://developer.android.com/tools/releases/platform-tools and extract to `./adb/platform-tools/`.
+  </Accordion>
+  
+  <Accordion title="Termux storage access denied">
+    Run `termux-setup-storage` manually and grant permissions when prompted. Restart Termux after granting permissions.
+  </Accordion>
+  
+  <Accordion title="Module import errors">
+    Delete the virtual environment and reinstall:
+    
+    ```bash
+    # Windows
+    rmdir /s venv
+    start.bat
+    
+    # Linux/macOS
+    rm -rf venv
+    bash start.sh
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+Now that the tool is installed, proceed to the Quick Start guide:
+
+<Card title="Quick Start Tutorial" icon="rocket" href="/quickstart">
+  Learn how to perform your first backup extraction and decryption
+</Card>

@@ -1,0 +1,392 @@
+---
+title: "TermuxManager"
+description: "Android-native operations for Termux environment"
+icon: "android"
+---
+
+## Overview
+
+The `TermuxManager` class (`core/termux_manager.py:8`) provides Android-native file operations when running directly on an Android device via Termux, bypassing the need for ADB.
+
+## Class Definition
+
+```python core/termux_manager.py
+class TermuxManager:
+    """
+    Manager for Termux environment operations.
+    Handles file access directly via filesystem instead of ADB.
+    """
+    
+    WHATSAPP_PACKAGES = {
+        'com.whatsapp': 'WhatsApp Messenger',
+        'com.whatsapp.w4b': 'WhatsApp Business'
+    }
+```
+
+## Constructor
+
+### `__init__()`
+
+```python
+def __init__(self, output_dir: str = "backups")
+```
+
+<ParamField path="output_dir" type="str" default="backups">
+  Directory where backups will be copied
+</ParamField>
+
+**Attributes:**
+- `output_dir`: Output directory for backups
+- `os_type`: Always set to 'termux'
+
+## Key Differences from DeviceManager
+
+<CardGroup cols={2}>
+  <Card title="No ADB Dependency" icon="circle-xmark">
+    Direct filesystem access without ADB bridge
+  </Card>
+  <Card title="Internal Storage" icon="folder-open">
+    Access to internal storage with proper permissions
+  </Card>
+  <Card title="File Operations" icon="copy">
+    Uses `shutil.copy2()` instead of ADB pull
+  </Card>
+  <Card title="Local Execution" icon="mobile-screen">
+    Runs natively on the Android device itself
+  </Card>
+</CardGroup>
+
+## Device Information
+
+### `get_devices()`
+
+Returns localhost as the device (Termux runs locally).
+
+```python
+def get_devices(self) -> List[str]
+```
+
+<ResponseField name="return" type="List[str]">
+  Always returns ["localhost (Termux)"]
+</ResponseField>
+
+### `get_detailed_device_info()`
+
+Retrieves basic device information using Python's platform module.
+
+```python
+def get_detailed_device_info(self, serial: str) -> dict
+```
+
+<ParamField path="serial" type="str" required>
+  Ignored (always localhost)
+</ParamField>
+
+<ResponseField name="return" type="dict">
+  Dictionary with limited device info:
+  - Serial: 'localhost'
+  - Model, Brand: From platform module
+  - Storage: From shutil.disk_usage()
+  - Other fields: 'Unknown' or placeholder values
+</ResponseField>
+
+### `get_users()`
+
+Returns primary user (user 0).
+
+```python
+def get_users(self, device_id: str) -> List[Dict[str, str]]
+```
+
+<ResponseField name="return" type="List[Dict[str, str]]">
+  Always returns a list with one user: id '0' and name 'Owner'
+</ResponseField>
+
+### `check_packages()`
+
+Returns all known WhatsApp packages (cannot verify without root).
+
+```python
+def check_packages(self, device_id: str) -> List[str]
+```
+
+<ResponseField name="return" type="List[str]">
+  Returns ['com.whatsapp', 'com.whatsapp.w4b']
+</ResponseField>
+
+## Backup Discovery
+
+### `find_backups()`
+
+Scans accessible storage locations for WhatsApp backups.
+
+```python
+def find_backups(self, device_id: str, user_id: str, package: str) -> List[Dict[str, str]]
+```
+
+<ParamField path="device_id" type="str" required>
+  Ignored (localhost)
+</ParamField>
+
+<ParamField path="user_id" type="str" required>
+  User ID (usually "0")
+</ParamField>
+
+<ParamField path="package" type="str" required>
+  Package name (com.whatsapp or com.whatsapp.w4b)
+</ParamField>
+
+<ResponseField name="return" type="List[Dict[str, str]]">
+  List of backup dictionaries with path, name, and size
+</ResponseField>
+
+**Search Locations:**
+
+```python
+base_paths = [
+    "/sdcard",
+    os.path.join(home, "storage/shared"),
+    os.path.join(home, "storage/external-1")
+]
+```
+
+**Search Patterns:**
+- WhatsApp: `WhatsApp/Databases`, `Android/media/com.whatsapp/WhatsApp/Databases`
+- Business: `WhatsApp Business/Databases`, `Android/media/com.whatsapp.w4b/WhatsApp Business/Databases`
+
+**Example:**
+
+```python
+termux = TermuxManager()
+backups = termux.find_backups("localhost", "0", "com.whatsapp")
+for backup in backups:
+    print(f"{backup['name']}: {backup['size']}")
+```
+
+### `find_media()`
+
+Locates WhatsApp Media folder in accessible storage.
+
+```python
+def find_media(self, device_id: str, user_id: str, package: str) -> str
+```
+
+<ParamField path="device_id" type="str" required>
+  Ignored (localhost)
+</ParamField>
+
+<ParamField path="user_id" type="str" required>
+  User ID
+</ParamField>
+
+<ParamField path="package" type="str" required>
+  Package name
+</ParamField>
+
+<ResponseField name="return" type="str">
+  Path to Media folder, or empty string if not found
+</ResponseField>
+
+## File Operations
+
+### `dump_backup()`
+
+Copies a backup file from storage to output directory.
+
+```python
+def dump_backup(
+    self, 
+    device_id: str, 
+    remote_path: str, 
+    user_id: str, 
+    package_type: str, 
+    verbose: bool = True
+) -> str
+```
+
+<ParamField path="device_id" type="str" required>
+  Ignored (localhost)
+</ParamField>
+
+<ParamField path="remote_path" type="str" required>
+  Full path to backup file
+</ParamField>
+
+<ParamField path="user_id" type="str" required>
+  User profile ID
+</ParamField>
+
+<ParamField path="package_type" type="str" required>
+  "messenger" or "business"
+</ParamField>
+
+<ParamField path="verbose" type="bool" default="True">
+  Print status messages
+</ParamField>
+
+<ResponseField name="return" type="str">
+  Local path to copied file, or empty string on failure
+</ResponseField>
+
+**Implementation:**
+
+```python
+shutil.copy2(remote_path, local_path)
+```
+
+Uses `copy2()` to preserve metadata (timestamps, permissions).
+
+### `dump_media_with_progress()`
+
+Copies Media folder with progress tracking.
+
+```python
+def dump_media_with_progress(
+    self, 
+    device_id: str, 
+    remote_path: str, 
+    local_dir: str
+) -> bool
+```
+
+<ParamField path="device_id" type="str" required>
+  Ignored (localhost)
+</ParamField>
+
+<ParamField path="remote_path" type="str" required>
+  Path to Media folder
+</ParamField>
+
+<ParamField path="local_dir" type="str" required>
+  Local directory to save media
+</ParamField>
+
+<ResponseField name="return" type="bool">
+  True if successful, False otherwise
+</ResponseField>
+
+**Implementation:**
+1. Walk directory tree with `os.walk()`
+2. Count total files
+3. Copy each file with `shutil.copy2()`
+4. Show progress with tqdm
+5. Preserve directory structure
+
+## Storage Access
+
+<Warning>
+  Termux requires storage permissions to access WhatsApp files. Run `termux-setup-storage` and grant permissions in Android settings.
+</Warning>
+
+**Setup Storage Access:**
+
+```bash
+# In Termux
+termux-setup-storage
+```
+
+This creates `~/storage/` symlinks to Android storage:
+- `~/storage/shared` → `/sdcard`
+- `~/storage/dcim` → `/sdcard/DCIM`
+- `~/storage/downloads` → `/sdcard/Download`
+
+## Usage Example
+
+```python
+from core.termux_manager import TermuxManager
+
+# Initialize manager
+termux = TermuxManager()
+
+# Get device info
+info = termux.get_detailed_device_info("localhost")
+print(f"Running on: {info['Model']}")
+
+# Find backups
+users = termux.get_users("localhost")
+packages = termux.check_packages("localhost")
+
+for user in users:
+    for pkg in packages:
+        backups = termux.find_backups("localhost", user['id'], pkg)
+        
+        for backup in backups:
+            print(f"Found: {backup['name']}")
+            
+            # Copy backup
+            pkg_type = "messenger" if pkg == "com.whatsapp" else "business"
+            local_path = termux.dump_backup(
+                "localhost",
+                backup['path'],
+                user['id'],
+                pkg_type
+            )
+            
+            if local_path:
+                print(f"Copied to: {local_path}")
+```
+
+## Environment Detection
+
+The main application detects Termux environment:
+
+```python main.py:30-32
+IS_TERMUX = False
+if os.environ.get("PREFIX") and "com.termux" in os.environ.get("PREFIX"):
+    IS_TERMUX = True
+```
+
+Based on this flag, the appropriate manager is used:
+
+```python main.py:34-40
+if IS_TERMUX:
+    from core.termux_manager import TermuxManager
+    ui.update_status("mode", "Termux")
+else:
+    from core.device_manager import DeviceManager
+    ui.update_status("mode", "ADB")
+```
+
+## Advantages
+
+<CardGroup cols={2}>
+  <Card title="No PC Required" icon="mobile">
+    Run forensic analysis directly on the target device
+  </Card>
+  <Card title="Internal Storage Access" icon="folder-open">
+    Access internal storage with proper permissions
+  </Card>
+  <Card title="Faster Operations" icon="gauge-high">
+    No USB transfer overhead, direct file access
+  </Card>
+  <Card title="Portable" icon="suitcase">
+    Entire forensic toolkit on a mobile device
+  </Card>
+</CardGroup>
+
+## Limitations
+
+<Warning>
+  TermuxManager has limited capabilities compared to DeviceManager:
+  - Cannot query detailed hardware info
+  - No battery/RAM statistics
+  - Cannot verify installed packages without root
+  - Requires manual storage permission setup
+</Warning>
+
+## Related
+
+<CardGroup cols={2}>
+  <Card title="Android/Termux Guide" icon="android" href="/guides/android-termux">
+    Complete setup guide for Termux
+  </Card>
+  <Card title="DeviceManager" icon="mobile" href="/api/device-manager">
+    ADB-based device management
+  </Card>
+  <Card title="Backup Extraction" icon="download" href="/features/backup-extraction">
+    Extract backups from devices
+  </Card>
+  <Card title="Troubleshooting" icon="wrench" href="/advanced/troubleshooting">
+    Solve common Termux issues
+  </Card>
+</CardGroup>

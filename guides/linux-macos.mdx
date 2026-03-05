@@ -1,0 +1,729 @@
+---
+title: 'Linux & macOS Guide'
+description: 'Complete guide for running WhatsApp Forensic Tool on Unix-based systems'
+icon: 'linux'
+---
+
+## Overview
+
+The WhatsApp Forensic Tool runs natively on Linux and macOS using the `start.sh` launcher script. The tool automatically handles Python installation (on Linux), virtual environment setup, and ADB configuration.
+
+## Prerequisites
+
+### Linux Requirements
+- **Distribution**: Any modern Linux distribution (Ubuntu, Debian, Fedora, Arch, etc.)
+- **Python**: 3.8 or higher (auto-installed on Debian/Ubuntu systems)
+- **Package Manager**: `apt`, `yum`, `pacman`, or equivalent
+- **USB Support**: `libusb` (usually pre-installed)
+- **Permissions**: User account with `sudo` privileges (for Python/ADB installation)
+
+### macOS Requirements
+- **macOS Version**: 10.13 (High Sierra) or later
+- **Python**: 3.8+ (install via Homebrew)
+- **Homebrew**: Package manager for installing dependencies
+- **Xcode Command Line Tools**: For development tools
+
+<Info>
+The `start.sh` script automatically detects your OS and adapts accordingly.
+</Info>
+
+## Installation
+
+### Linux Installation
+
+<Tabs>
+  <Tab title="Ubuntu/Debian">
+    <Steps>
+      <Step title="Clone Repository">
+        ```bash
+        git clone https://github.com/cedroid/whatsapp-forensic-tool.git
+        cd whatsapp-forensic-tool
+        ```
+      </Step>
+
+      <Step title="Make Script Executable">
+        ```bash
+        chmod +x start.sh
+        ```
+      </Step>
+
+      <Step title="Run Launcher">
+        ```bash
+        bash start.sh
+        # or
+        ./start.sh
+        ```
+        
+        The script will automatically:
+        - Detect if Python 3 is installed
+        - Install Python 3 via `apt` if missing (requires sudo)
+        - Create virtual environment
+        - Install dependencies
+        - Launch the application
+      </Step>
+    </Steps>
+
+    **Auto-Installation Command**:
+    ```bash
+    # What start.sh runs if Python is missing:
+    sudo apt-get update && sudo apt-get install -y python3 python3-venv python3-pip
+    ```
+  </Tab>
+
+  <Tab title="Fedora/RHEL">
+    <Steps>
+      <Step title="Install Git & Python">
+        ```bash
+        sudo dnf install -y git python3 python3-pip python3-virtualenv
+        ```
+      </Step>
+
+      <Step title="Clone and Run">
+        ```bash
+        git clone https://github.com/cedroid/whatsapp-forensic-tool.git
+        cd whatsapp-forensic-tool
+        chmod +x start.sh
+        ./start.sh
+        ```
+      </Step>
+    </Steps>
+  </Tab>
+
+  <Tab title="Arch Linux">
+    <Steps>
+      <Step title="Install Dependencies">
+        ```bash
+        sudo pacman -S git python python-pip
+        ```
+      </Step>
+
+      <Step title="Clone and Run">
+        ```bash
+        git clone https://github.com/cedroid/whatsapp-forensic-tool.git
+        cd whatsapp-forensic-tool
+        chmod +x start.sh
+        ./start.sh
+        ```
+      </Step>
+    </Steps>
+  </Tab>
+</Tabs>
+
+### macOS Installation
+
+<Steps>
+  <Step title="Install Homebrew (if not installed)">
+    ```bash
+    /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+    ```
+  </Step>
+
+  <Step title="Install Python 3">
+    ```bash
+    brew install python3
+    ```
+    
+    <Note>
+    macOS Monterey+ includes Python 3, but Homebrew version is recommended for latest features.
+    </Note>
+  </Step>
+
+  <Step title="Clone Repository">
+    ```bash
+    git clone https://github.com/cedroid/whatsapp-forensic-tool.git
+    cd whatsapp-forensic-tool
+    ```
+  </Step>
+
+  <Step title="Run Launcher">
+    ```bash
+    chmod +x start.sh
+    bash start.sh
+    ```
+    
+    <Warning>
+    If the script fails, ensure you have Xcode Command Line Tools:
+    ```bash
+    xcode-select --install
+    ```
+    </Warning>
+  </Step>
+</Steps>
+
+## How start.sh Works
+
+The launcher script performs intelligent platform detection:
+
+```bash
+#!/bin/bash
+
+# 1. Detect Environment (NOT Termux)
+if [[ "$OSTYPE" == "linux-gnu"* ]]; then
+    # Linux detected
+elif [[ "$OSTYPE" == "darwin"* ]]; then
+    # macOS detected
+fi
+
+# 2. Check Python 3 Installation
+if ! command -v python3 &> /dev/null; then
+    # Attempt auto-install on Linux
+    sudo apt-get update && sudo apt-get install -y python3 python3-venv python3-pip
+fi
+
+# 3. Create Virtual Environment
+if [ ! -d "venv" ]; then
+    python3 -m venv venv
+fi
+
+# 4. Activate Virtual Environment
+source venv/bin/activate
+
+# 5. Install Dependencies
+pip install -r requirements.txt
+
+# 6. Launch Application
+python main.py
+```
+
+<Info>
+The virtual environment isolates dependencies, preventing conflicts with system Python packages.
+</Info>
+
+## Permission Issues
+
+### chmod: Permission Denied
+
+**Issue**: Can't make `start.sh` executable
+
+**Solution**:
+```bash
+# Check file ownership
+ls -la start.sh
+
+# Take ownership if needed (Linux)
+sudo chown $USER:$USER start.sh
+chmod +x start.sh
+
+# Or run with bash directly
+bash start.sh
+```
+
+### Script Execution Blocked
+
+**macOS Issue**: "start.sh cannot be opened because it is from an unidentified developer"
+
+**Solution**:
+```bash
+# Remove quarantine attribute
+xattr -d com.apple.quarantine start.sh
+
+# Or run with bash
+bash start.sh
+```
+
+## ADB Installation
+
+### Automatic Download
+
+The tool auto-downloads ADB platform tools:
+
+<Tabs>
+  <Tab title="Linux">
+    Downloads from:
+    ```
+    https://dl.google.com/android/repository/platform-tools-latest-linux.zip
+    ```
+    
+    Extracted to: `adb/platform-tools/adb`
+  </Tab>
+
+  <Tab title="macOS">
+    Downloads from:
+    ```
+    https://dl.google.com/android/repository/platform-tools-latest-darwin.zip
+    ```
+    
+    Extracted to: `adb/platform-tools/adb`
+  </Tab>
+</Tabs>
+
+### Package Manager Installation
+
+Alternatively, install ADB via package manager:
+
+<CodeGroup>
+```bash Ubuntu/Debian
+sudo apt-get update
+sudo apt-get install -y android-tools-adb android-tools-fastboot
+```
+
+```bash Fedora
+sudo dnf install -y android-tools
+```
+
+```bash Arch Linux
+sudo pacman -S android-tools
+```
+
+```bash macOS (Homebrew)
+brew install android-platform-tools
+```
+</CodeGroup>
+
+### Verify ADB Installation
+
+```bash
+# Check if ADB is accessible
+which adb
+adb version
+
+# Start ADB server
+adb start-server
+
+# List connected devices
+adb devices
+```
+
+Expected output:
+```
+List of devices attached
+ABC123XYZ    device
+```
+
+## USB Permissions (Linux)
+
+### Understanding udev Rules
+
+Linux requires udev rules for non-root ADB access.
+
+<Warning>
+Without proper udev rules, you'll need to run ADB as root (not recommended).
+</Warning>
+
+### Setting Up USB Permissions
+
+<Steps>
+  <Step title="Create udev Rules File">
+    ```bash
+    sudo nano /etc/udev/rules.d/51-android.rules
+    ```
+  </Step>
+
+  <Step title="Add Device Rules">
+    Add these lines (covers most manufacturers):
+    
+    ```udev
+    # Google/Pixel/Nexus
+    SUBSYSTEM=="usb", ATTR{idVendor}=="18d1", MODE="0666", GROUP="plugdev"
+    
+    # Samsung
+    SUBSYSTEM=="usb", ATTR{idVendor}=="04e8", MODE="0666", GROUP="plugdev"
+    
+    # Xiaomi
+    SUBSYSTEM=="usb", ATTR{idVendor}=="2717", MODE="0666", GROUP="plugdev"
+    
+    # OnePlus
+    SUBSYSTEM=="usb", ATTR{idVendor}=="2a70", MODE="0666", GROUP="plugdev"
+    
+    # Motorola
+    SUBSYSTEM=="usb", ATTR{idVendor}=="22b8", MODE="0666", GROUP="plugdev"
+    
+    # Huawei
+    SUBSYSTEM=="usb", ATTR{idVendor}=="12d1", MODE="0666", GROUP="plugdev"
+    
+    # LG
+    SUBSYSTEM=="usb", ATTR{idVendor}=="1004", MODE="0666", GROUP="plugdev"
+    
+    # HTC
+    SUBSYSTEM=="usb", ATTR{idVendor}=="0bb4", MODE="0666", GROUP="plugdev"
+    ```
+    
+    <Info>
+    For other manufacturers, find the vendor ID using `lsusb` with device connected.
+    </Info>
+  </Step>
+
+  <Step title="Set Permissions">
+    ```bash
+    sudo chmod a+r /etc/udev/rules.d/51-android.rules
+    ```
+  </Step>
+
+  <Step title="Add User to plugdev Group">
+    ```bash
+    sudo usermod -aG plugdev $USER
+    ```
+    
+    <Warning>
+    Log out and log back in for group membership to take effect.
+    </Warning>
+  </Step>
+
+  <Step title="Reload udev Rules">
+    ```bash
+    sudo udevadm control --reload-rules
+    sudo udevadm trigger
+    ```
+  </Step>
+
+  <Step title="Restart ADB Server">
+    ```bash
+    adb kill-server
+    adb start-server
+    adb devices
+    ```
+  </Step>
+</Steps>
+
+### Finding Device Vendor ID
+
+If your device isn't recognized:
+
+```bash
+# Connect device and run:
+lsusb
+
+# Example output:
+# Bus 001 Device 010: ID 18d1:4ee7 Google Inc. Nexus/Pixel Device
+#                        ^^^^ This is the vendor ID
+
+# Add to udev rules:
+SUBSYSTEM=="usb", ATTR{idVendor}=="18d1", MODE="0666", GROUP="plugdev"
+```
+
+## macOS Security & Permissions
+
+### System Integrity Protection (SIP)
+
+macOS SIP may restrict certain operations:
+
+**If encountering permission errors**:
+
+1. **Grant Terminal Full Disk Access**:
+   - System Preferences → Security & Privacy → Privacy
+   - Full Disk Access → Add Terminal.app
+
+2. **Allow ADB Connections**:
+   - First ADB connection will prompt for permission
+   - Click "Allow" in System Preferences
+
+### Gatekeeper Issues
+
+**Error**: "adb cannot be opened because the developer cannot be verified"
+
+**Solution**:
+```bash
+# Remove quarantine from ADB directory
+xattr -dr com.apple.quarantine adb/
+
+# Or approve in System Preferences
+# Security & Privacy → General → "Allow Anyway"
+```
+
+## Common Unix Issues
+
+### Issue: "python3: command not found"
+
+<Tabs>
+  <Tab title="Linux (Debian/Ubuntu)">
+    ```bash
+    sudo apt-get update
+    sudo apt-get install -y python3 python3-pip python3-venv
+    ```
+  </Tab>
+
+  <Tab title="Linux (Fedora)">
+    ```bash
+    sudo dnf install -y python3 python3-pip
+    ```
+  </Tab>
+
+  <Tab title="macOS">
+    ```bash
+    # Install Homebrew first, then:
+    brew install python3
+    ```
+  </Tab>
+</Tabs>
+
+### Issue: "venv: command not found"
+
+**Cause**: Missing `python3-venv` package (Linux)
+
+**Solution**:
+```bash
+# Ubuntu/Debian
+sudo apt-get install -y python3-venv
+
+# Fedora
+sudo dnf install -y python3-virtualenv
+
+# Then retry start.sh
+./start.sh
+```
+
+### Issue: "No devices found" (Linux)
+
+**Troubleshooting Steps**:
+
+<Steps>
+  <Step title="Check USB Connection">
+    ```bash
+    lsusb | grep -i android
+    # or
+    lsusb | grep -i samsung  # or your device brand
+    ```
+    
+    Device should appear in the list.
+  </Step>
+
+  <Step title="Verify udev Rules">
+    ```bash
+    ls -la /etc/udev/rules.d/51-android.rules
+    cat /etc/udev/rules.d/51-android.rules
+    ```
+  </Step>
+
+  <Step title="Check User Groups">
+    ```bash
+    groups $USER
+    # Should include "plugdev"
+    ```
+    
+    If not:
+    ```bash
+    sudo usermod -aG plugdev $USER
+    # Log out and back in
+    ```
+  </Step>
+
+  <Step title="Restart ADB as Non-Root">
+    ```bash
+    # Kill any root ADB instances
+    sudo adb kill-server
+    
+    # Start as regular user
+    adb start-server
+    adb devices
+    ```
+  </Step>
+
+  <Step title="Check USB Debugging Authorization">
+    - Look at your phone screen
+    - Tap "Allow" when prompted to authorize computer
+    - Check "Always allow from this computer"
+  </Step>
+</Steps>
+
+### Issue: "Permission denied" when accessing device
+
+**Cause**: Incorrect udev rules or missing group membership
+
+**Solution**:
+```bash
+# Check current permissions
+adb devices
+
+# If showing "no permissions"
+# 1. Fix udev rules (see USB Permissions section)
+# 2. Ensure user in plugdev group:
+sudo usermod -aG plugdev $USER
+
+# 3. Log out and back in
+# 4. Restart ADB
+adb kill-server
+adb start-server
+adb devices
+```
+
+### Issue: Virtual environment activation fails
+
+**Error**: `source: venv/bin/activate: No such file or directory`
+
+**Solution**:
+```bash
+# Remove corrupted venv
+rm -rf venv
+
+# Recreate
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+python main.py
+```
+
+### Issue: "pip: command not found" in venv
+
+**Cause**: Virtual environment not properly created
+
+**Solution**:
+```bash
+# Install pip for system Python first
+# Ubuntu/Debian:
+sudo apt-get install -y python3-pip
+
+# macOS:
+brew install python3  # includes pip
+
+# Then recreate venv:
+rm -rf venv
+python3 -m venv venv
+source venv/bin/activate
+```
+
+### Issue: macOS "SSL: CERTIFICATE_VERIFY_FAILED"
+
+**Cause**: Python installed without SSL certificates
+
+**Solution**:
+```bash
+# For Homebrew Python:
+brew reinstall python3
+
+# For Python.org installer:
+cd "/Applications/Python 3.x/"
+sudo "./Install Certificates.command"
+```
+
+## Package Manager Differences
+
+### Installing ADB Across Distributions
+
+<CardGroup cols={2}>
+  <Card title="Debian/Ubuntu" icon="ubuntu">
+    ```bash
+    sudo apt-get install android-tools-adb
+    ```
+  </Card>
+
+  <Card title="Fedora/RHEL" icon="fedora">
+    ```bash
+    sudo dnf install android-tools
+    ```
+  </Card>
+
+  <Card title="Arch Linux" icon="linux">
+    ```bash
+    sudo pacman -S android-tools
+    ```
+  </Card>
+
+  <Card title="macOS (Homebrew)" icon="apple">
+    ```bash
+    brew install android-platform-tools
+    ```
+  </Card>
+</CardGroup>
+
+## Advanced Usage
+
+### Running Without start.sh
+
+For manual control:
+
+```bash
+# Create and activate venv manually
+python3 -m venv venv
+source venv/bin/activate
+
+# Install dependencies
+pip install -r requirements.txt
+
+# Run application
+python main.py
+
+# Deactivate venv when done
+deactivate
+```
+
+### Running with System Python (Not Recommended)
+
+```bash
+# Install dependencies globally
+pip3 install --user -r requirements.txt
+
+# Run with system Python
+python3 main.py
+```
+
+<Warning>
+Using system Python can cause dependency conflicts. Virtual environments are strongly recommended.
+</Warning>
+
+### ADB over WiFi (Advanced)
+
+<Steps>
+  <Step title="Connect via USB First">
+    ```bash
+    adb devices
+    ```
+  </Step>
+
+  <Step title="Enable TCP/IP Mode">
+    ```bash
+    adb tcpip 5555
+    ```
+  </Step>
+
+  <Step title="Find Device IP">
+    ```bash
+    adb shell ip addr show wlan0 | grep inet
+    ```
+  </Step>
+
+  <Step title="Connect Wirelessly">
+    ```bash
+    adb connect 192.168.1.XXX:5555
+    adb devices
+    ```
+    
+    Disconnect USB cable. Device should remain connected.
+  </Step>
+</Steps>
+
+## Performance Optimization
+
+<CardGroup cols={2}>
+  <Card title="Use Fast Storage" icon="hard-drive">
+    Store backups on SSD/NVMe for faster I/O.
+  </Card>
+
+  <Card title="Adjust USB Autosuspend" icon="usb">
+    Disable USB autosuspend for stable connections:
+    ```bash
+    # Disable for current session
+    echo -1 | sudo tee /sys/module/usbcore/parameters/autosuspend
+    ```
+  </Card>
+
+  <Card title="Increase ADB Buffer" icon="memory">
+    For large transfers:
+    ```bash
+    export ADB_TRACE=all
+    ```
+  </Card>
+
+  <Card title="Monitor Resource Usage" icon="chart-line">
+    Use `htop` to monitor Python/ADB resource usage.
+  </Card>
+</CardGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Quick Start Guide" icon="rocket" href="/quickstart">
+    Learn the basic workflow
+  </Card>
+
+  <Card title="Windows Guide" icon="windows" href="/guides/windows">
+    Platform guide for Windows users
+  </Card>
+
+  <Card title="Android/Termux Guide" icon="mobile" href="/guides/android-termux">
+    Run directly on Android without PC
+  </Card>
+
+  <Card title="Troubleshooting" icon="wrench" href="/resources/troubleshooting">
+    Advanced troubleshooting guide
+  </Card>
+</CardGroup>

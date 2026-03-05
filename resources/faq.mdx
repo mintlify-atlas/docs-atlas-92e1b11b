@@ -1,0 +1,316 @@
+---
+title: "Frequently Asked Questions"
+description: "Common questions and answers about the WhatsApp Forensic Tool"
+---
+
+# Frequently Asked Questions
+
+Find answers to the most common questions about using the WhatsApp Forensic Tool.
+
+## General Questions
+
+<AccordionGroup>
+  <Accordion title="What devices are supported?">
+    The tool supports:
+    - **Android devices** (connected via USB with ADB debugging enabled)
+    - **Direct Android execution** via Termux app
+    - **PC platforms**: Windows, Linux, and macOS
+    
+    The tool works on devices running Android 5.0+ (API 21+). Root access is not required for basic backup extraction from legacy storage locations.
+  </Accordion>
+
+  <Accordion title="Do I need root access?">
+    **No root access required** for most use cases:
+    - When using **ADB mode** (PC), the tool can extract backups from accessible storage locations (`/sdcard/WhatsApp`)
+    - When running via **Termux on Android**, storage permissions are requested to access internal storage
+    
+    Root is only needed if you want to extract the encryption key file directly from `/data/data/com.whatsapp/files/key`, which requires privileged access. However, if you have the 64-character hexadecimal backup encryption key (obtained when enabling E2E encrypted backups), root is not necessary.
+  </Accordion>
+
+  <Accordion title="Where do I get the encryption key?">
+    There are two types of encryption keys:
+
+    ### 64-Character Hexadecimal Key (Recommended)
+    This key is generated when you enable **End-to-End Encrypted Backups** in WhatsApp:
+    1. Open WhatsApp > Settings > Chats > Chat Backup
+    2. Enable "End-to-end encrypted backups"
+    3. Choose "Use 64-digit encryption key"
+    4. **Save this key immediately** - you cannot retrieve it later
+
+    ### Root-Extracted Key File
+    If you have root access, you can extract the `key` file from:
+    ```
+    /data/data/com.whatsapp/files/key
+    /data/data/com.whatsapp.w4b/files/key (Business)
+    ```
+
+    The tool will automatically save and reuse keys for future decryptions of the same device/package combination.
+  </Accordion>
+
+  <Accordion title="What crypt formats are supported?">
+    The tool supports three WhatsApp database encryption formats:
+    - **crypt12** - Older WhatsApp backup format (AES-GCM encryption)
+    - **crypt14** - Current standard format
+    - **crypt15** - Latest format with enhanced security
+
+    The decryption engine automatically detects the format and applies the appropriate decryption method, including:
+    - Known offset patterns for IV and ciphertext
+    - Brute-force offset scanning for non-standard layouts
+    - Both raw and derived key methods
+    - Automatic decompression (zlib)
+  </Accordion>
+
+  <Accordion title="Can I decrypt E2E encrypted backups?">
+    **Yes**, but you need the encryption key:
+
+    - If you have the **64-character hexadecimal key** saved when you enabled E2E encrypted backups, the tool can decrypt them
+    - Without this key, E2E encrypted backups **cannot be decrypted** unless you have root access to extract the key file from the device's protected storage
+    
+    The whole point of E2E encryption is that only the user with the key can decrypt the backups. WhatsApp cannot help recover lost keys.
+  </Accordion>
+
+  <Accordion title="Why is my device not detected?">
+    If your device isn't showing up, try these troubleshooting steps:
+
+    1. **Enable USB Debugging**:
+       - Go to Settings > About Phone
+       - Tap "Build Number" 7 times to enable Developer Mode
+       - Go to Settings > Developer Options
+       - Enable "USB Debugging"
+
+    2. **Check USB Connection**:
+       - Use a data-capable USB cable (not charge-only)
+       - Try different USB ports
+       - Accept any authorization prompts on your phone
+
+    3. **Verify ADB Installation**:
+       - The tool auto-installs ADB, but you can manually verify by running:
+       ```bash
+       adb devices
+       ```
+
+    4. **Restart ADB Server**:
+       ```bash
+       adb kill-server
+       adb start-server
+       ```
+
+    5. **Check Drivers** (Windows):
+       - Install your device manufacturer's USB drivers
+       - Try using Google's Universal ADB Driver
+  </Accordion>
+
+  <Accordion title="Can I run this on my phone?">
+    **Yes!** The tool has full Termux integration for direct Android execution:
+
+    ### Deployment Method:
+    1. Connect your phone to your PC via USB
+    2. Run the tool on PC and select **"Deploy to Termux (Downloads)"**
+    3. Install [Termux](https://f-droid.org/en/packages/com.termux/) from F-Droid (not Play Store)
+    4. Open Termux and run:
+       ```bash
+       cp -r /sdcard/Download/whatsapp-forensic-tool $HOME
+       cd $HOME/whatsapp-forensic-tool
+       bash start.sh
+       ```
+
+    ### Manual Installation:
+    ```bash
+    pkg update && pkg upgrade
+    pkg install git python
+    git clone https://github.com/cedroid/whatsapp-forensic-tool.git
+    cd whatsapp-forensic-tool
+    bash start.sh
+    ```
+
+    <Note>
+      Termux mode requires storage permissions to access WhatsApp backups in internal storage.
+    </Note>
+  </Accordion>
+
+  <Accordion title="What data can I extract?">
+    The tool can extract and analyze:
+
+    ### Database Content:
+    - Chat messages (text, media references)
+    - Contact information and JIDs (WhatsApp IDs)
+    - Group information and participants
+    - Message timestamps and metadata
+    - Message status (sent, delivered, read)
+    - Deleted message indicators (if present in database)
+
+    ### Media Files:
+    - Images and photos
+    - Videos
+    - Audio messages and voice notes
+    - Documents (PDF, DOCX, etc.)
+    - Stickers and GIFs
+
+    ### Export Formats:
+    - **HTML**: Formatted chat view with media links
+    - **CSV**: Spreadsheet-compatible format
+    - **JSON**: Structured data for programmatic analysis
+    - **TXT**: Plain text readable format
+  </Accordion>
+
+  <Accordion title="Is this legal to use?">
+    The legality depends on **how and where** you use the tool:
+
+    ### Legal Uses:
+    - Analyzing your own device and data
+    - Forensic investigation with proper authorization
+    - Educational purposes and security research
+    - Parental monitoring with legal custody rights
+    - Corporate investigations with employee consent
+
+    ### Illegal Uses:
+    - Accessing someone else's data without consent
+    - Unauthorized surveillance or spying
+    - Violating computer fraud laws (CFAA, etc.)
+    - Breaking data protection regulations (GDPR, etc.)
+
+    <Warning>
+      **Always obtain explicit permission** before analyzing any device or data you do not own. Unauthorized access may result in criminal prosecution.
+    </Warning>
+
+    See the [Legal Disclaimer](/resources/legal-disclaimer) for detailed information.
+  </Accordion>
+
+  <Accordion title="Does it work with iPhone/WhatsApp iOS?">
+    **No.** This tool is designed specifically for **Android WhatsApp backups only**.
+
+    Key differences:
+    - iOS WhatsApp backups use iCloud with different encryption
+    - iOS file system structure is completely different
+    - ADB doesn't work with iOS devices
+    - Different database formats and schemas
+
+    For iOS WhatsApp analysis, you would need specialized iOS forensic tools that can extract data from iTunes/iCloud backups or jailbroken devices.
+  </Accordion>
+
+  <Accordion title="What Python version do I need?">
+    **Python 3.8 or higher** is required.
+
+    The launcher scripts (`start.bat` for Windows, `start.sh` for Linux/macOS/Android) automatically:
+    - Detect if Python is installed
+    - Attempt to install Python if missing (Windows via installer, Linux via apt, macOS via brew)
+    - Create a virtual environment to isolate dependencies
+    - Install all required packages from `requirements.txt`
+
+    ### Manual Installation:
+    ```bash
+    # Install Python 3.8+
+    python3 --version  # Verify installation
+
+    # Clone and run
+    git clone https://github.com/cedroid/whatsapp-forensic-tool.git
+    cd whatsapp-forensic-tool
+    bash start.sh  # or start.bat on Windows
+    ```
+  </Accordion>
+
+  <Accordion title="Where are backups stored on Android?">
+    WhatsApp stores backups in different locations depending on the Android version:
+
+    ### Modern Android (11+):
+    ```
+    /sdcard/Android/media/com.whatsapp/WhatsApp/Databases/
+    /sdcard/Android/media/com.whatsapp.w4b/WhatsApp Business/Databases/
+    ```
+
+    ### Legacy Android:
+    ```
+    /sdcard/WhatsApp/Databases/
+    /sdcard/WhatsApp Business/Databases/
+    ```
+
+    ### Backup Files:
+    - `msgstore.db.crypt15` - Latest backup (crypt15 format)
+    - `msgstore.db.crypt14` - Previous format backups
+    - `msgstore-YYYY-MM-DD.1.db.cryptXX` - Older dated backups
+
+    The tool automatically scans all known locations and detects both WhatsApp Messenger and WhatsApp Business backups.
+  </Accordion>
+</AccordionGroup>
+
+## Technical Questions
+
+<AccordionGroup>
+  <Accordion title="How does the decryption work?">
+    The decryption process involves several steps:
+
+    1. **Format Detection**: Identifies crypt12, crypt14, or crypt15 format
+    2. **Key Derivation**: 
+       - For crypt14/15: Derives the actual AES key using HMAC-SHA256
+       - For crypt12: Uses the key directly
+    3. **IV Extraction**: Locates the Initialization Vector in the encrypted file header
+    4. **Decryption**: Uses AES-GCM cipher to decrypt the ciphertext
+    5. **Decompression**: Decompresses the decrypted data using zlib
+    6. **Validation**: Verifies the result is a valid SQLite database
+
+    The tool implements intelligent offset detection:
+    - Tries known offset patterns first (fast)
+    - Falls back to brute-force scanning if needed (slower but comprehensive)
+
+    Implementation reference: `core/crypto_manager.py:129`
+  </Accordion>
+
+  <Accordion title="Can I contribute to development?">
+    **Absolutely!** Contributions are welcome. See the [Contributing Guide](/resources/contributing) for:
+    - Code style guidelines
+    - Fork and pull request workflow
+    - Issue reporting templates
+    - Feature request process
+    - Testing requirements
+
+    Contact: [developer@cedroid.com](mailto:developer@cedroid.com)
+  </Accordion>
+
+  <Accordion title="What if decryption fails?">
+    If decryption fails, try these steps:
+
+    1. **Verify the key**:
+       - Ensure it's exactly 64 hexadecimal characters
+       - No spaces or special characters
+       - Case doesn't matter (hex is case-insensitive)
+
+    2. **Check the backup format**:
+       - Confirm the file extension matches the actual format
+       - Try a different backup file from the same device
+
+    3. **Key mismatch**:
+       - The key must match the device and WhatsApp installation
+       - Different devices have different keys
+       - Reinstalling WhatsApp generates a new key
+
+    4. **Corrupted backup**:
+       - Try an older backup file
+       - Re-extract the backup from the device
+
+    The tool implements progressive decryption strategies and will attempt multiple methods automatically.
+  </Accordion>
+
+  <Accordion title="How do I report bugs?">
+    To report bugs:
+
+    1. Check existing issues on GitHub first
+    2. Gather information:
+       - Tool version
+       - Operating system
+       - Android version (if applicable)
+       - Error messages or logs
+       - Steps to reproduce
+    3. Submit an issue on GitHub with details
+    4. Or email: [developer@cedroid.com](mailto:developer@cedroid.com)
+
+    See the [Contributing Guide](/resources/contributing) for more details.
+  </Accordion>
+</AccordionGroup>
+
+## Need More Help?
+
+If your question isn't answered here:
+- Review the [Usage Guide](/guides/basic-usage)
+- Check the [Troubleshooting](/guides/troubleshooting) section
+- Contact the developer: [developer@cedroid.com](mailto:developer@cedroid.com)
+- Submit an issue on GitHub

@@ -1,0 +1,371 @@
+---
+title: 'Backup Extraction'
+description: 'Extract WhatsApp database backups and media from Android devices'
+icon: 'download'
+---
+
+## Overview
+
+The backup extraction feature pulls encrypted WhatsApp database files and media from connected Android devices. It supports both WhatsApp Messenger and WhatsApp Business, handles multiple user profiles, and provides selective extraction options.
+
+## Workflow
+
+The `dump_backups()` method in `main.py:214` manages the extraction process:
+
+<Steps>
+  <Step title="User Scanning">
+    Detects all user profiles on the device
+  </Step>
+  <Step title="Package Detection">
+    Identifies installed WhatsApp packages (Messenger/Business)
+  </Step>
+  <Step title="Backup File Discovery">
+    Locates msgstore.db.cryptXX files in device storage
+  </Step>
+  <Step title="Backup Selection">
+    User chooses which backups to extract
+  </Step>
+  <Step title="File Extraction">
+    Pulls selected databases and optionally media files
+  </Step>
+</Steps>
+
+## Finding Backup Files
+
+The `find_backups()` method in `core/device_manager.py:163` searches for encrypted database files:
+
+### WhatsApp Messenger Paths
+
+```python
+if package == 'com.whatsapp':
+    paths = [
+        base + "WhatsApp/Databases",
+        base + "Android/media/com.whatsapp/WhatsApp/Databases"
+    ]
+```
+
+### WhatsApp Business Paths
+
+```python
+elif package == 'com.whatsapp.w4b':
+    paths = [
+        base + "WhatsApp Business/Databases",
+        base + "Android/media/com.whatsapp.w4b/WhatsApp Business/Databases"
+    ]
+```
+
+<Info>
+  The tool checks both legacy paths (internal storage) and newer Android 11+ media paths.
+</Info>
+
+### File Detection Logic
+
+```python
+for path in paths:
+    code, stdout, stderr = self.run_command(['-s', device_id, 'shell', 'ls', '-l', f'"{path}"'])
+    if code == 0 and "No such file" not in stdout:
+        lines = stdout.strip().split('\n')
+        for line in lines:
+            parts = line.split()
+            if len(parts) >= 5:
+                filename = parts[-1]
+                
+                # Check for duplicates
+                is_duplicate = False
+                for b in backups:
+                    if b['name'] == filename:
+                        is_duplicate = True
+                        break
+                if is_duplicate: continue
+
+                if re.match(r'msgstore.*\.crypt\d+$', filename):
+                    # Extract file size
+                    backups.append({
+                        'path': f"{path}/{filename}",
+                        'name': filename,
+                        'size': size
+                    })
+```
+
+<Check>
+  The regex `msgstore.*\.crypt\d+$` matches files like `msgstore.db.crypt15`, `msgstore-2024-03-01.1.db.crypt14`, etc.
+</Check>
+
+## Multiple User Support
+
+The tool iterates through all device users and their WhatsApp installations:
+
+```python
+users = self.device_manager.get_users(self.selected_device)
+packages = self.device_manager.check_packages(self.selected_device)
+
+all_backups = []
+for user in users:
+    for pkg in packages:
+        backups = self.device_manager.find_backups(
+            self.selected_device,
+            user['id'],
+            pkg
+        )
+        for b in backups:
+            all_backups.append({
+                'remote': b['path'],
+                'user': user['id'],
+                'pkg': pkg,
+                'type': "messenger" if pkg == "com.whatsapp" else "business",
+                'name': b['name'],
+                'size': b['size']
+            })
+```
+
+<Note>
+  Each user profile (User 0, User 10, etc.) has independent WhatsApp data.
+</Note>
+
+## Selective Extraction Options
+
+After discovering backups, the tool presents extraction options:
+
+```python
+ui.print_menu("Dump Options", [
+    "Dump All",
+    "Select Specific Files",
+    "Dump All WhatsApp Messenger",
+    "Dump All WhatsApp Business",
+    "Back"
+])
+dump_choice = ui.ask("Choice", choices=["1", "2", "3", "4", "5"])
+```
+
+### Option 1: Dump All
+
+```python
+if dump_choice == '1':
+    target_indices = range(len(all_backups))
+```
+
+### Option 2: Select Specific Files
+
+```python
+elif dump_choice == '2':
+    sel = ui.ask("Enter file numbers (comma separated, e.g. 1,3)")
+    try:
+        parts = [int(x.strip()) for x in sel.split(',') if x.strip().isdigit()]
+        target_indices = [x-1 for x in parts if 1 <= x <= len(all_backups)]
+    except: pass
+```
+
+### Option 3: Dump WhatsApp Messenger Only
+
+```python
+elif dump_choice == '3':
+    target_indices = [i for i, x in enumerate(all_backups) if x['type'] == "messenger"]
+```
+
+### Option 4: Dump WhatsApp Business Only
+
+```python
+elif dump_choice == '4':
+    target_indices = [i for i, x in enumerate(all_backups) if x['type'] == "business"]
+```
+
+## Database Extraction
+
+The `dump_backup()` method in `core/device_manager.py:238` handles file transfer:
+
+```python
+def dump_backup(self, device_id: str, remote_path: str, user_id: str,
+                package_type: str, verbose: bool = True) -> str:
+    filename = os.path.basename(remote_path)
+    local_dir = os.path.join(
+        self.output_dir,
+        device_id,
+        f"user_{user_id}",
+        package_type
+    )
+    if not os.path.exists(local_dir):
+        os.makedirs(local_dir)
+    local_path = os.path.join(local_dir, filename)
+    
+    code, _, stderr = self.run_command(['-s', device_id, 'pull', remote_path, local_path])
+    
+    if code == 0 and os.path.exists(local_path):
+        if verbose: print_success(f"Dumped: {filename}")
+        return local_path
+    else:
+        print_error(f"Failed to pull {remote_path}: {stderr}")
+        return ""
+```
+
+## Output Directory Structure
+
+Files are organized in a hierarchical structure:
+
+```
+backups/
+└── {device_serial}/
+    └── user_{user_id}/
+        ├── messenger/
+        │   ├── msgstore.db.crypt15
+        │   ├── msgstore-2024-03-01.1.db.crypt15
+        │   └── Media/
+        │       ├── WhatsApp Images/
+        │       ├── WhatsApp Video/
+        │       └── WhatsApp Audio/
+        └── business/
+            ├── msgstore.db.crypt14
+            └── Media/
+```
+
+<Info>
+  This structure preserves device identity, user profiles, and app types for organized analysis.
+</Info>
+
+## Progress Tracking
+
+Database extraction shows progress using a progress bar:
+
+```python
+with ui.create_progress("Dumping Databases...", total=len(items_to_dump)) as progress:
+    task = progress.add_task("Dumping...", total=len(items_to_dump))
+    for item in items_to_dump:
+        self.device_manager.dump_backup(
+            self.selected_device,
+            item['remote'],
+            item['user'],
+            item['type'],
+            verbose=False
+        )
+        progress.update(task, advance=1)
+        self.session_stats["dumped"] += 1
+```
+
+## Media Extraction
+
+Users can optionally include media files:
+
+```python
+mode = ui.ask("Include Media? (y/n)", default="n").lower()
+include_media = mode == 'y'
+
+if include_media:
+    processed_media = set()
+    for item in items_to_dump:
+        key = f"{item['user']}_{item['pkg']}"
+        if key in processed_media: continue
+        
+        media_path = self.device_manager.find_media(
+            self.selected_device,
+            item['user'],
+            item['pkg']
+        )
+        if media_path:
+            local_dir = os.path.join(
+                "backups",
+                self.selected_device,
+                f"user_{item['user']}",
+                item['type'],
+                "Media"
+            )
+            
+            if not self.device_manager.dump_media_with_progress(
+                self.selected_device,
+                media_path,
+                local_dir
+            ):
+                ui.print_warning(f"Media dump incomplete for {item['pkg']}")
+        processed_media.add(key)
+```
+
+<Warning>
+  Media extraction can take significant time depending on the amount of data (images, videos, audio files).
+</Warning>
+
+## Media Discovery
+
+The `find_media()` method locates WhatsApp's media folder:
+
+```python
+def find_media(self, device_id: str, user_id: str, package: str) -> str:
+    base = f"/storage/emulated/{user_id}/"
+    paths = []
+    if package == 'com.whatsapp':
+        paths = [
+            base + "WhatsApp/Media",
+            base + "Android/media/com.whatsapp/WhatsApp/Media"
+        ]
+    elif package == 'com.whatsapp.w4b':
+        paths = [
+            base + "WhatsApp Business/Media",
+            base + "Android/media/com.whatsapp.w4b/WhatsApp Business/Media"
+        ]
+        
+    for path in paths:
+        code, stdout, stderr = self.run_command(
+            ['-s', device_id, 'shell', 'ls', '-d', f'"{path}"']
+        )
+        if code == 0 and "No such file" not in stdout:
+            return path
+    return ""
+```
+
+## Advanced Media Extraction
+
+For more details on media extraction implementation, see [Media Dumping](/features/media-dumping).
+
+## Session Statistics
+
+The tool tracks extraction statistics:
+
+```python
+self.session_stats["dumped"] += 1
+```
+
+These statistics are displayed in the session summary when exiting the application.
+
+## Permissions Required
+
+<CardGroup cols={2}>
+  <Card title="Storage Access" icon="folder-open">
+    Read access to WhatsApp directories via ADB
+  </Card>
+  <Card title="Root Not Required" icon="shield-check">
+    Works on non-rooted devices using standard ADB
+  </Card>
+  <Card title="USB Debugging" icon="bug">
+    Must be enabled in Developer Options
+  </Card>
+  <Card title="Sufficient Disk Space" icon="hard-drive">
+    Local storage for backup files (databases can be 100MB+, media can be GBs)
+  </Card>
+</CardGroup>
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="No backup files found">
+    - Ensure WhatsApp is installed and has been used
+    - Check that backups exist in WhatsApp Settings > Chats > Chat backup
+    - Try creating a manual backup first
+    - Some devices may require root access for certain paths
+  </Accordion>
+  
+  <Accordion title="Permission denied errors">
+    - Grant file access permissions to WhatsApp in Android settings
+    - On Android 11+, ensure WhatsApp has "All files access" permission
+    - Try using the legacy storage path if media path fails
+  </Accordion>
+  
+  <Accordion title="Incomplete media extraction">
+    - Media folders can contain thousands of files
+    - Extraction may timeout on slow connections
+    - Consider extracting databases first, then media separately
+    - Some files may be inaccessible due to Android security restrictions
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<Card title="Decrypt Backups" icon="lock-open" href="/features/decryption">
+  After extraction, decrypt the encrypted database files using the encryption key
+</Card>

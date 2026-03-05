@@ -1,0 +1,523 @@
+---
+title: 'Database Viewer'
+description: 'Browse and explore decrypted WhatsApp SQLite databases'
+icon: 'database'
+---
+
+## Overview
+
+The database viewer provides an interactive interface to browse decrypted WhatsApp databases, list chats, view messages, and explore contact information. It supports multiple database schemas and handles various WhatsApp database versions.
+
+## Viewer Class Architecture
+
+The `Viewer` class in `core/viewer.py:8` manages all database operations:
+
+```python
+class Viewer:
+    def __init__(self, db_path: str):
+        self.db_path = db_path
+        self.conn = None
+        self.cursor = None
+        self.contact_map = {}
+```
+
+## Workflow
+
+The `view_database()` method in `main.py:444` orchestrates the viewing experience:
+
+<Steps>
+  <Step title="Database Selection">
+    Lists all `.decrypted.db` files and allows selection
+  </Step>
+  <Step title="Viewer Initialization">
+    Creates Viewer instance and connects to SQLite database
+  </Step>
+  <Step title="Chat Listing">
+    Displays paginated list of chats with metadata
+  </Step>
+  <Step title="Chat Selection">
+    User selects a chat to view messages
+  </Step>
+  <Step title="Message Display">
+    Shows chronological message history with sender information
+  </Step>
+</Steps>
+
+## SQLite Connection
+
+The `connect()` method establishes database access:
+
+```python
+def connect(self) -> bool:
+    if not os.path.exists(self.db_path):
+        print_error(f"Database file not found: {self.db_path}")
+        return False
+    
+    try:
+        self.conn = sqlite3.connect(self.db_path)
+        self.cursor = self.conn.cursor()
+        self._load_contacts()  # Load contacts on connect
+        return True
+    except sqlite3.Error as e:
+        print_error(f"Failed to connect to database: {e}")
+        return False
+```
+
+<Info>
+  The viewer automatically loads contact information for enhanced message display.
+</Info>
+
+## Contact Mapping
+
+The `_load_contacts()` method reads contact names from the `wa_contacts` table:
+
+```python
+def _load_contacts(self):
+    try:
+        self.cursor.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='wa_contacts'"
+        )
+        if self.cursor.fetchone():
+            # Check columns
+            self.cursor.execute("PRAGMA table_info(wa_contacts)")
+            cols = [c[1] for c in self.cursor.fetchall()]
+            
+            name_col = None
+            if 'display_name' in cols:
+                name_col = 'display_name'
+            elif 'wa_name' in cols:
+                name_col = 'wa_name'
+            
+            if name_col and 'jid' in cols:
+                self.cursor.execute(
+                    f"SELECT jid, {name_col} FROM wa_contacts WHERE {name_col} IS NOT NULL"
+                )
+                for row in self.cursor.fetchall():
+                    jid, name = row[0], row[1]
+                    if name:
+                        self.contact_map[jid] = name
+    except: pass
+```
+
+<Check>
+  Contact mapping allows displaying friendly names instead of phone numbers or JIDs.
+</Check>
+
+## Chat Listing
+
+The `list_chats()` method retrieves chat metadata:
+
+### Schema Detection
+
+```python
+def list_chats(self, limit: int = 0) -> List[Dict[str, Any]]:
+    # Check for 'chat' table
+    self.cursor.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='chat'"
+    )
+    if not self.cursor.fetchone():
+        print_error("Table 'chat' not found. This might be an old database version.")
+        return []
+```
+
+### Modern Schema (with JID table)
+
+```python
+limit_clause = f"LIMIT {limit}" if limit > 0 else ""
+
+self.cursor.execute(
+    "SELECT name FROM sqlite_master WHERE type='table' AND name='jid'"
+)
+has_jid_table = bool(self.cursor.fetchone())
+
+if has_jid_table:
+    query = f"""
+    SELECT c._id, j.user, j.server, c.subject, c.sort_timestamp
+    FROM chat c
+    LEFT JOIN jid j ON c.jid_row_id = j._id
+    ORDER BY c.sort_timestamp DESC
+    {limit_clause}
+    """
+    self.cursor.execute(query)
+    rows = self.cursor.fetchall()
+    
+    for row in rows:
+        chat_id = row[0]
+        user = row[1] if row[1] else ""
+        server = row[2] if row[2] else ""
+        subject = row[3] if row[3] else ""
+        timestamp = row[4]
+        
+        jid = f"{user}@{server}" if user and server else "Unknown"
+        
+        chats.append({
+            'id': chat_id,
+            'jid': jid,
+            'subject': subject,
+            'timestamp': timestamp
+        })
+```
+
+<Info>
+  Modern WhatsApp databases separate JID (Jabber ID) information into a dedicated table for normalization.
+</Info>
+
+### Legacy Schema (without JID table)
+
+```python
+else:
+    query = f"SELECT _id, subject, sort_timestamp FROM chat ORDER BY sort_timestamp DESC {limit_clause}"
+    self.cursor.execute(query)
+    rows = self.cursor.fetchall()
+    
+    for row in rows:
+        chat_id = row[0]
+        subject = row[1] if row[1] else "No Subject"
+        timestamp = row[2]
+        
+        chats.append({
+            'id': chat_id,
+            'jid': "Unknown (No JID table)",
+            'subject': subject,
+            'timestamp': timestamp
+        })
+```
+
+## Chat Display with Pagination
+
+Chats are displayed with pagination support:
+
+```python
+page, per_page = 0, 20
+while True:
+    all_chats = self.viewer.list_chats(limit=0)
+    display = all_chats[page*per_page:(page+1)*per_page]
+    
+    rows = []
+    for i, c in enumerate(display):
+        subj = c['subject'][:30]+"..." if len(c['subject'])>30 else c['subject']
+        rows.append([str(i+1), c['timestamp'], c['jid'], subj])
+    
+    ui.print_table(
+        f"Chats (Page {page+1})",
+        ["#", "Last Active", "JID", "Subject"],
+        rows
+    )
+    ui.print_info(f"Showing {len(display)} chats. Total: {len(all_chats)}")
+```
+
+## Navigation Commands
+
+The viewer supports keyboard navigation:
+
+```python
+c = ui.ask("Option", default="", choices=None)
+
+if c.lower() == 'b':
+    break  # Go back to main menu
+elif c.lower() == 'n':
+    page += 1  # Next page
+elif c.lower() == 'p' and page > 0:
+    page -= 1  # Previous page
+elif c.isdigit() and 1 <= int(c) <= len(display):
+    self.view_messages(display[int(c)-1])  # View selected chat
+```
+
+<CardGroup cols={3}>
+  <Card title="[N]ext" icon="arrow-right">
+    Navigate to next page of chats
+  </Card>
+  <Card title="[P]revious" icon="arrow-left">
+    Navigate to previous page
+  </Card>
+  <Card title="[B]ack" icon="rotate-left">
+    Return to main menu
+  </Card>
+</CardGroup>
+
+## Message Retrieval
+
+The `get_messages()` method in `core/viewer.py:137` fetches chat messages:
+
+### Modern Schema with Media Support
+
+```python
+def get_messages(self, chat_id: int, chat_jid: str, limit: int = 100):
+    limit_clause = f"LIMIT {limit}" if limit > 0 else ""
+    
+    # Check for media table
+    self.cursor.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='message_media'"
+    )
+    has_media_table = bool(self.cursor.fetchone())
+    
+    if has_media_table:
+        select_clause = "m._id, m.text_data, m.timestamp, m.from_me, m.sender_jid_row_id"
+        select_clause += ", mm.file_path, mm.mime_type"
+        join_clause = "LEFT JOIN message_media mm ON m._id = mm.message_row_id"
+    else:
+        select_clause += ", NULL, NULL, NULL"
+        join_clause = ""
+
+    query = f"""
+    SELECT {select_clause}
+    FROM message m
+    {join_clause}
+    WHERE m.chat_row_id = ?
+    ORDER BY m.timestamp DESC
+    {limit_clause}
+    """
+    
+    self.cursor.execute(query, (chat_id,))
+```
+
+### Sender Resolution
+
+```python
+for row in rows:
+    msg_id = row[0]
+    text = row[1]
+    ts = row[2]
+    from_me = row[3]
+    sender_row_id = row[4]
+    
+    sender_jid = "Unknown"
+    if not from_me and has_jid_table and sender_row_id > 0:
+        self.cursor.execute(
+            "SELECT user, server FROM jid WHERE _id=?",
+            (sender_row_id,)
+        )
+        jid_res = self.cursor.fetchone()
+        if jid_res:
+            sender_jid = f"{jid_res[0]}@{jid_res[1]}"
+    elif from_me:
+        sender_jid = "Me"
+    
+    # Resolve contact name
+    sender_name = sender_jid
+    if sender_jid in self.contact_map:
+        sender_name = self.contact_map[sender_jid]
+```
+
+<Info>
+  The viewer resolves sender IDs to phone numbers/JIDs and then to contact names for better readability.
+</Info>
+
+### Media Information
+
+```python
+file_path = row[5]
+mime_type = row[6]
+
+media_info = None
+if file_path:
+    media_info = {
+        'path': file_path,
+        'type': mime_type if mime_type else 'application/octet-stream'
+    }
+
+display_text = text
+if not text:
+    if media_info:
+        display_text = f"<Media: {media_info['type']}>"
+    else:
+        display_text = "<Media/No Text>"
+
+messages.append({
+    'id': msg_id,
+    'text': display_text,
+    'raw_text': text,
+    'timestamp': ts,
+    'from_me': bool(from_me),
+    'sender': sender_name,
+    'jid': sender_jid,
+    'media': media_info
+})
+```
+
+## Message Display
+
+Messages are displayed in chronological order:
+
+```python
+def view_messages(self, chat):
+    limit = 50
+    while True:
+        ui.print_info(f"Chat: {chat['subject']} ({chat['jid']})")
+        
+        msgs = self.viewer.get_messages(chat['id'], chat['jid'], limit=limit)
+        
+        if not msgs:
+            ui.print_warning("No messages found.")
+        else:
+            ui.console.print(f"[dim]Showing last {len(msgs)} messages...[/dim]")
+            ui.console.print("-" * 60)
+            for m in msgs:
+                ui.print_message(m)
+        
+        print("-" * 60)
+        c = ui.ask("Options: [M]ore, [A]ll, [B]ack", default="b").lower()
+        if c == 'm':
+            limit += 50  # Load more messages
+        elif c == 'a':
+            limit = 0    # Load all messages
+        elif c == 'b':
+            break
+```
+
+<Warning>
+  Loading all messages from large chats may take time and consume significant memory.
+</Warning>
+
+## Legacy Schema Support
+
+The viewer includes fallback strategies for older database versions:
+
+### Strategy 1: available_message_view
+
+```python
+if not messages:
+    self.cursor.execute(
+        "SELECT name FROM sqlite_master WHERE type='view' AND name='available_message_view'"
+    )
+    if self.cursor.fetchone():
+        query = f"""
+        SELECT text_data, timestamp, from_me
+        FROM available_message_view
+        WHERE chat_row_id = ?
+        ORDER BY timestamp DESC
+        {limit_clause}
+        """
+        self.cursor.execute(query, (chat_id,))
+```
+
+### Strategy 2: messages table (legacy)
+
+```python
+if not messages:
+    self.cursor.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='messages'"
+    )
+    if self.cursor.fetchone():
+        query = f"""
+        SELECT data, timestamp, key_from_me, remote_resource
+        FROM messages
+        WHERE key_remote_jid = ?
+        ORDER BY timestamp DESC
+        {limit_clause}
+        """
+        self.cursor.execute(query, (chat_jid,))
+```
+
+<Check>
+  Multi-strategy querying ensures compatibility across WhatsApp versions from 2.12.x to latest.
+</Check>
+
+## Message Count
+
+The `get_message_count()` method provides database statistics:
+
+```python
+def get_message_count(self) -> int:
+    try:
+        # Check for 'message' table
+        self.cursor.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='message'"
+        )
+        if self.cursor.fetchone():
+            self.cursor.execute("SELECT COUNT(*) FROM message")
+            res = self.cursor.fetchone()
+            return res[0] if res else 0
+        
+        # Check for 'messages' table (older)
+        self.cursor.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='messages'"
+        )
+        if self.cursor.fetchone():
+            self.cursor.execute("SELECT COUNT(*) FROM messages")
+            res = self.cursor.fetchone()
+            return res[0] if res else 0
+            
+        return 0
+    except sqlite3.Error:
+        return 0
+```
+
+## Database Selection
+
+The viewer allows manual path entry or selection from discovered databases:
+
+```python
+dbs = []
+if os.path.exists("backups"):
+    for root, _, files in os.walk("backups"):
+        for f in files:
+            if f.endswith('.decrypted.db'):
+                dbs.append(os.path.join(root, f))
+
+if not dbs:
+    path = ui.ask("Enter DB path manually")
+    if path and os.path.exists(path):
+        self.decrypted_db_path = path
+    else:
+        return
+else:
+    rows = []
+    for i, p in enumerate(dbs):
+        t = "WhatsApp" if "messenger" in p.lower() else "Business" if "business" in p.lower() else "Unknown"
+        rows.append([str(i+1), t, os.path.basename(p)])
+    
+    ui.print_table("Decrypted Databases", ["#", "Type", "File"], rows)
+```
+
+<Info>
+  The tool remembers the last loaded database and offers to continue with it.
+</Info>
+
+## Features
+
+<CardGroup cols={2}>
+  <Card title="Paginated Browsing" icon="book-open">
+    Navigate through chats 20 at a time
+  </Card>
+  <Card title="Contact Resolution" icon="address-book">
+    Maps JIDs to contact names automatically
+  </Card>
+  <Card title="Media Detection" icon="image">
+    Identifies media messages with type information
+  </Card>
+  <Card title="Schema Flexibility" icon="diagram-project">
+    Supports multiple WhatsApp database versions
+  </Card>
+  <Card title="Incremental Loading" icon="layer-group">
+    Load 50 messages at a time or all at once
+  </Card>
+  <Card title="Chronological Display" icon="clock">
+    Messages displayed in conversation order
+  </Card>
+</CardGroup>
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Table 'chat' not found">
+    The database may be corrupted or from an unsupported WhatsApp version. Try decrypting a different backup file or ensure the decryption was successful.
+  </Accordion>
+  
+  <Accordion title="No messages displayed">
+    - The chat may be empty
+    - Database schema may be incompatible (very old versions)
+    - Check that the database file is not corrupted
+    - Try viewing a different chat
+  </Accordion>
+  
+  <Accordion title="Sender names show as phone numbers">
+    The `wa_contacts` table may be empty or use a different column name. This is cosmetic and doesn't affect message content.
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<Card title="Export Chats" icon="file-export" href="/features/chat-export">
+  Export chat history to HTML, CSV, JSON, or TXT formats
+</Card>

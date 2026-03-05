@@ -1,0 +1,263 @@
+---
+title: 'Device Scanning'
+description: 'Detect and analyze connected Android devices via ADB'
+icon: 'mobile'
+---
+
+## Overview
+
+The device scanning feature uses ADB (Android Debug Bridge) to detect connected devices, retrieve comprehensive hardware and software information, and identify WhatsApp installations. This is the first step in the forensic extraction workflow.
+
+## Workflow
+
+The `scan_devices()` method in `main.py:141` orchestrates the entire scanning process:
+
+<Steps>
+  <Step title="Device Detection">
+    Queries ADB for connected devices using the `get_devices()` method
+  </Step>
+  <Step title="Information Retrieval">
+    For each detected device, retrieves detailed hardware and software properties
+  </Step>
+  <Step title="WhatsApp Detection">
+    Checks for WhatsApp Messenger and WhatsApp Business installations
+  </Step>
+  <Step title="Device Selection">
+    Presents results in a table and allows user to select target device
+  </Step>
+</Steps>
+
+## ADB Device Detection
+
+Devices are detected using ADB's `devices` command:
+
+```python
+def get_devices(self) -> List[str]:
+    code, stdout, stderr = self.run_command(['devices'])
+    if code != 0: return []
+    devices = []
+    for line in stdout.strip().split('\n')[1:]:
+        if '\tdevice' in line:
+            devices.append(line.split('\t')[0])
+    return devices
+```
+
+<Info>
+  The method parses ADB output and filters for lines containing `\tdevice` to identify actively connected devices.
+</Info>
+
+## Device Information Retrieval
+
+The `get_detailed_device_info()` method in `core/device_manager.py:92` collects comprehensive device properties:
+
+### Basic Properties
+
+```python
+props = {
+    'Model': 'ro.product.model',
+    'Brand': 'ro.product.brand',
+    'Android Version': 'ro.build.version.release',
+    'SDK': 'ro.build.version.sdk',
+    'Manufacturer': 'ro.product.manufacturer',
+    'Device': 'ro.product.device',
+    'Board': 'ro.product.board',
+    'Security Patch': 'ro.build.version.security_patch'
+}
+```
+
+Each property is retrieved using `adb shell getprop <property_name>`.
+
+### Battery Information
+
+```python
+_, bat, _ = self.run_command(['-s', serial, 'shell', 'dumpsys', 'battery'])
+if bat:
+    level = re.search(r'level: (\d+)', bat)
+    info['Battery'] = f"{level.group(1)}%" if level else "Unknown"
+```
+
+### Memory (RAM) Information
+
+```python
+_, mem, _ = self.run_command(['-s', serial, 'shell', 'cat', '/proc/meminfo'])
+if mem:
+    total = re.search(r'MemTotal:\s+(\d+)\s+kB', mem)
+    free = re.search(r'MemAvailable:\s+(\d+)\s+kB', mem)
+    if total:
+        t_gb = int(total.group(1)) / (1024 * 1024)
+        info['RAM Total'] = f"{t_gb:.2f} GB"
+```
+
+### Storage Information
+
+```python
+_, df, _ = self.run_command(['-s', serial, 'shell', 'df', '-h', '/data'])
+if df:
+    lines = df.strip().split('\n')
+    if len(lines) > 1:
+        parts = lines[-1].split()
+        if len(parts) >= 4:
+            info['Storage Total'] = parts[1]
+            info['Storage Used'] = parts[2]
+            info['Storage Free'] = parts[3]
+```
+
+## WhatsApp Package Detection
+
+The tool checks for both WhatsApp variants:
+
+```python
+WHATSAPP_PACKAGES = {
+    'com.whatsapp': 'WhatsApp Messenger',
+    'com.whatsapp.w4b': 'WhatsApp Business'
+}
+
+for pkg, name in self.WHATSAPP_PACKAGES.items():
+    code, path, _ = self.run_command(['-s', serial, 'shell', 'pm', 'path', pkg])
+    if code == 0 and path.strip():
+        wa_paths.append(f"{name} ({pkg})")
+info['WhatsApp Installations'] = ", ".join(wa_paths) if wa_paths else "None"
+```
+
+<Check>
+  The `pm path` command returns the APK installation path if the package is installed.
+</Check>
+
+## User Profile Scanning
+
+For multi-user devices, the tool identifies all user profiles:
+
+```python
+def get_users(self, device_id: str) -> List[Dict[str, str]]:
+    code, stdout, _ = self.run_command(['-s', device_id, 'shell', 'pm', 'list', 'users'])
+    users = []
+    if code != 0: return users
+    for line in stdout.split('\n'):
+        match = re.search(r'UserInfo\{(\d+):([^:]+):', line)
+        if match:
+            users.append({'id': match.group(1), 'name': match.group(2)})
+    return users
+```
+
+<Note>
+  Each user profile has separate app data, including separate WhatsApp databases.
+</Note>
+
+## Device Selection UI
+
+After scanning, devices are displayed in a formatted table:
+
+```python
+rows = []
+for i, dev in enumerate(devices):
+    info = self.device_manager.get_detailed_device_info(dev)
+    rows.append([
+        str(i+1),
+        dev,
+        info.get('Model','?'),
+        info.get('Brand','?'),
+        f"Android {info.get('Android Version','?')}"
+    ])
+
+ui.print_table("Connected Devices", ["#", "Serial", "Model", "Brand", "OS"], rows)
+```
+
+### Auto-Selection
+
+If only one device is detected, it's automatically selected:
+
+```python
+if len(devices) == 1:
+    self.selected_device = devices[0]
+    ui.print_info(f"Auto-selected: {self.selected_device}")
+else:
+    sel = ui.ask("Select device number (or Enter to skip)", default="")
+    if sel.isdigit() and 1 <= int(sel) <= len(devices):
+        idx = int(sel)-1
+        self.selected_device = devices[idx]
+```
+
+## Enhanced Information Display
+
+After selection, detailed information is grouped into categories:
+
+- **Device Hardware**: Model, Brand, Manufacturer, Device Name, Board
+- **Software Info**: Android Version, SDK API, Security Patch
+- **System Status**: Battery Level, RAM (Total/Available), Internal Storage
+- **Applications**: WhatsApp Installations detected
+
+```python
+ui.print_table("Device Hardware", ["Property", "Value"], basic_info)
+ui.print_table("Software Info", ["Property", "Value"], os_info)
+ui.print_table("System Status", ["Property", "Value"], hardware_info)
+ui.print_table("Applications", ["Property", "Value"], app_info)
+```
+
+## Quick Scan on Startup
+
+The tool performs a silent scan when launched:
+
+```python
+def _quick_device_scan(self):
+    """Silently scans for devices on startup to populate status bar."""
+    try:
+        devices = self.device_manager.get_devices()
+        if devices:
+            self.selected_device = devices[0]
+            self.selected_device_info = self.device_manager.get_detailed_device_info(
+                self.selected_device
+            )
+            ui.update_status(
+                "device",
+                f"{self.selected_device} ({self.selected_device_info.get('Model', '')})"
+            )
+    except: pass
+```
+
+<Tip>
+  This pre-populates the status bar with device information for a better user experience.
+</Tip>
+
+## Requirements
+
+<CardGroup cols={2}>
+  <Card title="ADB Installed" icon="terminal">
+    The tool auto-downloads ADB if not found on the system
+  </Card>
+  <Card title="USB Debugging" icon="bug">
+    Must be enabled on the Android device
+  </Card>
+  <Card title="Device Authorization" icon="key">
+    User must authorize the computer on the device
+  </Card>
+  <Card title="USB Connection" icon="usb">
+    Device must be physically connected via USB
+  </Card>
+</CardGroup>
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="No devices found">
+    - Verify USB Debugging is enabled in Developer Options
+    - Check the USB cable is properly connected
+    - Authorize the computer on the device when prompted
+    - Try `adb kill-server` and `adb start-server` to restart ADB
+  </Accordion>
+  
+  <Accordion title="Device shows as 'unauthorized'">
+    - Disconnect and reconnect the USB cable
+    - Revoke USB debugging authorizations in Developer Options
+    - Re-enable USB debugging and reconnect
+  </Accordion>
+  
+  <Accordion title="Incomplete device information">
+    Some properties may be unavailable depending on Android version and manufacturer customizations. This does not affect backup extraction capabilities.
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<Card title="Dump Backups" icon="database" href="/features/backup-extraction">
+  After scanning devices, proceed to extract WhatsApp backup files
+</Card>

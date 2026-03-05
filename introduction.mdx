@@ -1,0 +1,143 @@
+---
+title: Introduction
+description: A powerful, cross-platform forensic tool to extract, decrypt, and analyze WhatsApp backups from Android devices
+---
+
+## What is the WhatsApp Forensic Tool?
+
+The WhatsApp Forensic Tool is a comprehensive forensic solution designed to extract, decrypt, and analyze WhatsApp backups (`msgstore.db.cryptXX`) from Android devices. This tool works seamlessly on **PC (Windows/Linux/macOS)** via ADB and directly on **Android devices** using Termux.
+
+<Info>
+  Developed by **Cedroid** (developer@cedroid.com) for educational and forensic analysis purposes.
+</Info>
+
+## Key Capabilities
+
+The tool provides end-to-end forensic capabilities for WhatsApp data analysis:
+
+<CardGroup cols={2}>
+  <Card title="Zero-Config Installation" icon="bolt">
+    Automatically installs Python, sets up virtual environments, downloads ADB, and installs all dependencies with a single command.
+  </Card>
+  <Card title="Cross-Platform Support" icon="laptop-mobile">
+    Run on Windows, Linux, macOS, or directly on Android devices via Termux for maximum flexibility.
+  </Card>
+  <Card title="Automated Extraction" icon="database">
+    Scans for WhatsApp and WhatsApp Business backups automatically across multiple users and storage locations.
+  </Card>
+  <Card title="Advanced Decryption" icon="lock-open">
+    Supports crypt12, crypt14, and crypt15 formats with intelligent offset scanning and key derivation.
+  </Card>
+</CardGroup>
+
+## Supported Platforms
+
+The tool runs on all major operating systems:
+
+- **Windows** - Full ADB support with automated setup
+- **Linux** - Native support with automatic Python installation
+- **macOS** - Complete compatibility with Homebrew integration
+- **Android (Termux)** - Direct on-device analysis with internal storage access
+
+## Supported Encryption Formats
+
+The decryption engine handles all modern WhatsApp backup formats:
+
+| Format | Description | Key Type |
+|--------|-------------|----------|
+| **crypt12** | Legacy format (pre-2016) | 64-character hexadecimal key |
+| **crypt14** | Modern format with E2EE support | 64-character hexadecimal key |
+| **crypt15** | Latest format with enhanced encryption | 64-character hexadecimal key |
+
+<Warning>
+  The 64-character hexadecimal key is generated when you enable End-to-End Encrypted Backups in WhatsApp settings. You must save this key manually when prompted by WhatsApp.
+</Warning>
+
+## Use Cases
+
+This tool is designed for legitimate forensic and analysis purposes:
+
+<CardGroup cols={3}>
+  <Card title="Digital Forensics" icon="magnifying-glass">
+    Law enforcement and forensic investigators analyzing legal evidence from WhatsApp communications.
+  </Card>
+  <Card title="Data Recovery" icon="hard-drive">
+    Recovering lost or deleted WhatsApp conversations from backup files for personal or business use.
+  </Card>
+  <Card title="Security Research" icon="shield">
+    Security professionals studying WhatsApp's encryption and backup mechanisms for research purposes.
+  </Card>
+</CardGroup>
+
+<Warning>
+  This tool is intended for **educational and forensic analysis purposes only**. Do not use this tool on devices you do not own or do not have explicit permission to analyze.
+</Warning>
+
+## Architecture Overview
+
+The tool follows a modular architecture designed for maintainability and extensibility:
+
+```
+whatsapp-forensic-tool/
+├── main.py                 # Application entry point and UI controller
+├── core/                   # Core functionality modules
+│   ├── crypto_manager.py   # AES-GCM decryption engine
+│   ├── device_manager.py   # ADB operations and device scanning
+│   ├── termux_manager.py   # Android-native operations
+│   ├── viewer.py           # SQLite database parsing
+│   ├── ui.py               # Rich text user interface
+│   └── utils.py            # Helper functions and logging
+├── start.bat               # Windows launcher with auto-setup
+└── start.sh                # Linux/macOS/Termux launcher
+```
+
+### Core Components
+
+<Steps>
+  <Step title="main.py - Application Controller">
+    The main entry point (`main.py:704`) initializes the application, detects the runtime environment (PC vs Termux), and manages the interactive menu system. It coordinates all operations between core modules.
+  </Step>
+  
+  <Step title="crypto_manager.py - Decryption Engine">
+    Handles AES-GCM decryption with intelligent offset scanning (`crypto_manager.py:129-192`). Implements key derivation using HMAC-SHA256 and supports multiple crypt formats through adaptive decryption strategies.
+  </Step>
+  
+  <Step title="device_manager.py - ADB Interface">
+    Manages ADB operations including device scanning, backup extraction, and media dumping (`device_manager.py:13-283`). Automatically downloads and configures ADB platform tools for the host OS.
+  </Step>
+  
+  <Step title="viewer.py - Database Parser">
+    Parses decrypted SQLite databases to extract chat metadata, messages, and contact information. Provides structured data access for export and viewing operations.
+  </Step>
+</Steps>
+
+### Key Features Implementation
+
+**Automatic Device Detection** (`main.py:141-175`)
+
+The tool automatically scans for connected Android devices via ADB, queries detailed device information including model, manufacturer, Android version, battery level, RAM, storage, and installed WhatsApp packages.
+
+**Multi-Format Decryption** (`crypto_manager.py:129-192`)
+
+The decryption engine attempts multiple strategies:
+1. Known offset patterns for crypt14/15
+2. Key derivation using HMAC-SHA256
+3. Brute-force offset scanning (0-190 byte range)
+4. GCM authentication tag validation
+
+**Secure Key Storage** (`crypto_manager.py:28-112`)
+
+Decryption keys are stored in an encrypted format using AES-GCM with a machine-specific key derived from the system's MAC address. This prevents key files from being readable on other machines.
+
+## Next Steps
+
+Ready to get started? Follow these guides:
+
+<CardGroup cols={2}>
+  <Card title="Installation" icon="download" href="/installation">
+    Set up the tool on your platform with step-by-step instructions
+  </Card>
+  <Card title="Quick Start" icon="rocket" href="/quickstart">
+    Complete your first WhatsApp backup extraction and decryption
+  </Card>
+</CardGroup>

@@ -1,0 +1,379 @@
+---
+title: 'Backup Decryption'
+description: 'Decrypt WhatsApp encrypted database backups using AES-GCM'
+icon: 'lock-open'
+---
+
+## Overview
+
+WhatsApp backups are encrypted using AES-256-GCM encryption with unique keys per device. The decryption feature supports multiple encryption formats (crypt12, crypt14, crypt15) and includes automatic key management for seamless decryption of previously seen devices.
+
+## Encryption Formats
+
+WhatsApp has evolved its encryption scheme over time:
+
+<CardGroup cols={3}>
+  <Card title="Crypt12" icon="1">
+    Older format using AES-256-GCM with simpler header structure
+  </Card>
+  <Card title="Crypt14" icon="2">
+    Current format with enhanced security and metadata
+  </Card>
+  <Card title="Crypt15" icon="3">
+    Latest format with additional protection layers
+  </Card>
+</CardGroup>
+
+## Decryption Workflow
+
+The `decrypt_backup()` method in `main.py:371` manages the decryption process:
+
+<Steps>
+  <Step title="Backup Discovery">
+    Scans the `backups/` directory for `.crypt12`, `.crypt14`, and `.crypt15` files
+  </Step>
+  <Step title="Backup Selection">
+    User selects which encrypted file to decrypt
+  </Step>
+  <Step title="Key Retrieval">
+    Checks for saved keys from previous decryption attempts
+  </Step>
+  <Step title="Decryption Attempt">
+    Attempts decryption with saved key or prompts for new key
+  </Step>
+  <Step title="Key Persistence">
+    Saves successful keys for future use
+  </Step>
+</Steps>
+
+## Finding Encrypted Backups
+
+```python
+crypt_files = []
+if os.path.exists("backups"):
+    for root, _, files in os.walk("backups"):
+        for f in files:
+            if f.endswith('.crypt14') or f.endswith('.crypt15') or f.endswith('.crypt12'):
+                crypt_files.append(os.path.join(root, f))
+```
+
+<Info>
+  The tool recursively searches all subdirectories for encrypted backup files.
+</Info>
+
+## Backup Selection
+
+Files are presented in a table with metadata:
+
+```python
+rows = []
+for i, f in enumerate(crypt_files):
+    parts = f.replace('\\', '/').split('/')
+    if len(parts) >= 5:
+        dev, user, pkg_type, fname = parts[1], parts[2], parts[3], parts[-1]
+        pkg_type = 'WhatsApp' if pkg_type == 'messenger' else 'Business'
+        rows.append([str(i+1), dev, user, pkg_type, fname])
+    else:
+        rows.append([str(i+1), "Unknown", "Unknown", "Unknown", os.path.basename(f)])
+
+ui.print_table("Available Backups", ["#", "Device", "User", "Type", "File Name"], rows)
+```
+
+## 64-Character Hexadecimal Key
+
+WhatsApp uses a 256-bit (32-byte) encryption key, represented as a 64-character hexadecimal string.
+
+<Warning>
+  The key must be exactly 64 hexadecimal characters (0-9, a-f). Invalid keys will be rejected before attempting decryption.
+</Warning>
+
+### Key Validation
+
+The `validate_hex_key()` function in `core/utils.py:105` ensures key integrity:
+
+```python
+def validate_hex_key(key: str) -> bool:
+    if len(key) != 64:
+        return False
+    try:
+        int(key, 16)
+        return True
+    except ValueError:
+        return False
+```
+
+## Obtaining the Encryption Key
+
+The encryption key can be retrieved from WhatsApp's end-to-end encryption backup settings:
+
+<Steps>
+  <Step title="Open WhatsApp">
+    Launch WhatsApp on the Android device
+  </Step>
+  <Step title="Navigate to Settings">
+    Settings → Chats → Chat backup → End-to-end encrypted backup
+  </Step>
+  <Step title="Access Encryption Key">
+    If E2E backup is enabled, view the 64-digit encryption key
+  </Step>
+  <Step title="Copy Key">
+    Copy the key or note it securely (do not share with others)
+  </Step>
+</Steps>
+
+<Note>
+  Different methods exist for rooted devices or accessing key files directly from the device storage. The E2E backup key is the most accessible method for standard users.
+</Note>
+
+## CryptoManager Architecture
+
+The `CryptoManager` class in `core/crypto_manager.py:19` handles all cryptographic operations:
+
+### Initialization
+
+```python
+def __init__(self):
+    self.app_data_dir = get_app_data_path()
+    self.KEY_FILE = os.path.join(self.app_data_dir, "keys.json")
+    self.storage_key = self._get_storage_key()
+    self._migrate_keys()
+    self.keys = self._load_keys()
+```
+
+<Info>
+  Keys are stored encrypted in the OS-specific app data directory, not in plaintext.
+</Info>
+
+### Machine-Specific Storage Encryption
+
+```python
+def _get_storage_key(self) -> bytes:
+    """Derives a machine-specific encryption key for securing keys.json."""
+    node_id = str(uuid.getnode())  # MAC address based
+    salt = b"WhatsAppForensicTool_Storage_Salt"
+    return PBKDF2(node_id, salt, dkLen=32, count=100000)
+```
+
+This ensures saved keys cannot be read on different machines.
+
+## Decryption Process
+
+The `decrypt_file()` method in `core/crypto_manager.py:129` implements the decryption algorithm:
+
+### Crypt12 Decryption
+
+```python
+if is_crypt12:
+    try:
+        iv = data[51:67]  # Extract 16-byte IV
+        ciphertext = data[67:-20]  # Extract ciphertext
+        cipher = AES.new(raw_key, AES.MODE_GCM, nonce=iv)
+        decrypted_data = zlib.decompress(
+            cipher.decrypt_and_verify(ciphertext[:-16], ciphertext[-16:])
+        )
+        print_success("Decrypted .crypt12 successfully.")
+    except: pass
+```
+
+### Crypt14/15 Decryption with Key Derivation
+
+```python
+def _derive_key(self, key_stream: bytes) -> bytes:
+    intermediate = hmac.new(b'\x00' * 32, key_stream, hashlib.sha256).digest()
+    return hmac.new(intermediate, b"backup encryption\x01", hashlib.sha256).digest()
+
+keys_to_try = [("Derived", self._derive_key(raw_key)), ("Raw", raw_key)]
+```
+
+<Check>
+  The derived key uses HMAC-SHA256 with the string "backup encryption\x01" to generate the actual AES key.
+</Check>
+
+### Known Offset Decryption
+
+```python
+COMMON_OFFSETS = [(8, 24, 135), (67, 83, 190), (191, 207, 224), (67, 83, 83)]
+
+for iv_s, iv_e, db_s in self.COMMON_OFFSETS:
+    if len(data) < db_s: continue
+    try:
+        iv = data[iv_s:iv_e]  # Extract IV
+        cipher = AES.new(key, AES.MODE_GCM, nonce=iv)
+        ct = data[db_s:]  # Ciphertext starts at db_s
+        tag = ct[-32:-16] if len(ct) > 32 else ct[-16:]  # Extract auth tag
+        actual = ct[:-32] if len(ct) > 32 else ct[:-16]
+        res = cipher.decrypt_and_verify(actual, tag)
+        decrypted_data = zlib.decompress(res)
+        print_success(f"Decrypted with {name} Key (Offset {iv_s})")
+        break
+    except: pass
+```
+
+### Brute Force Offset Scanning
+
+If known offsets fail, the tool scans for valid IV and ciphertext positions:
+
+```python
+for iv_s in range(0, 190):
+    iv = data[iv_s:iv_s+16]
+    for db_s in range(iv_s+16, iv_s+300):
+        try:
+            cipher = AES.new(key, AES.MODE_GCM, nonce=iv)
+            ct = data[db_s:]
+            res = cipher.decrypt_and_verify(ct[:-16], ct[-16:])
+            decrypted_data = zlib.decompress(res)
+            print_success(f"Decrypted at IV:{iv_s}, DB:{db_s}")
+            break
+        except: pass
+    if decrypted_data: break
+```
+
+<Warning>
+  Brute force scanning is computationally intensive but necessary for handling unknown encryption formats.
+</Warning>
+
+## Saved Key Management
+
+The tool automatically manages encryption keys:
+
+### Loading Saved Keys
+
+```python
+device_id, package_type = None, None
+parts = target_file.replace('\\', '/').split('/')
+if len(parts) >= 5:
+    device_id = parts[1]
+    pt = parts[3]
+    package_type = 'com.whatsapp' if pt == 'messenger' else 'com.whatsapp.w4b'
+
+saved_key = self.crypto_manager.get_key(device_id, package_type)
+```
+
+### Attempting Saved Key Decryption
+
+```python
+if saved_key:
+    ui.update_status("key", "Loaded")
+    ui.print_info(f"Trying saved key for {device_id}...")
+    with ui.spinner("Decrypting with saved key..."):
+        if self.crypto_manager.decrypt_file(target_file, saved_key, output_path):
+            ui.print_success("Decrypted with saved key.")
+            success = True
+        else:
+            ui.print_warning("Saved key failed.")
+            ui.update_status("key", "Invalid")
+```
+
+### Saving New Keys
+
+```python
+if self.crypto_manager.decrypt_file(target_file, key, output_path):
+    success = True
+    if device_id and package_type:
+        self.crypto_manager.save_key(device_id, package_type, key)
+        ui.update_status("key", "Saved")
+```
+
+<Info>
+  Keys are stored by device ID and package type, allowing different keys for WhatsApp Messenger and Business.
+</Info>
+
+## Decryption Success/Failure Handling
+
+The tool provides clear feedback and retry options:
+
+```python
+if not success:
+    while not success:
+        key = ui.ask("Enter 64-char hex key")
+        if not validate_hex_key(key):
+            ui.print_error("Invalid key format")
+            continue
+        
+        with ui.spinner("Decrypting..."):
+            if self.crypto_manager.decrypt_file(target_file, key, output_path):
+                success = True
+                # Save key...
+            else:
+                if not ui.confirm("Decryption failed. Retry?"):
+                    return
+```
+
+## Output Format
+
+Successfully decrypted databases are saved with the `.decrypted.db` suffix:
+
+```python
+output_path = target_file + ".decrypted.db"
+```
+
+Example:
+```
+msgstore.db.crypt15 → msgstore.db.crypt15.decrypted.db
+```
+
+<Check>
+  The decrypted file is a standard SQLite database that can be opened with any SQLite viewer.
+</Check>
+
+## Key Storage Security
+
+<CardGroup cols={2}>
+  <Card title="Encrypted Storage" icon="shield-halved">
+    Keys are encrypted with AES-256-GCM before storage
+  </Card>
+  <Card title="Machine-Bound" icon="computer">
+    Storage key is derived from machine-specific identifiers
+  </Card>
+  <Card title="OS-Specific Paths" icon="folder-tree">
+    Stored in AppData (Windows), Library/Application Support (macOS), or .config (Linux)
+  </Card>
+  <Card title="Automatic Migration" icon="arrows-turn-right">
+    Legacy plaintext keys are automatically encrypted on first run
+  </Card>
+</CardGroup>
+
+## Session Statistics
+
+```python
+if success:
+    self.session_stats["decrypted"] += 1
+    self.decrypted_db_path = output_path
+```
+
+Decryption count is tracked and displayed in the session summary.
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Invalid key format error">
+    - Ensure the key is exactly 64 characters
+    - Key must contain only hexadecimal characters (0-9, a-f)
+    - Remove any spaces or special characters
+    - Check for copy-paste errors
+  </Accordion>
+  
+  <Accordion title="Decryption failed with valid key">
+    - The key may be for a different backup file
+    - WhatsApp Messenger and Business use different keys
+    - The file may be corrupted
+    - Try using the E2E backup key from WhatsApp settings
+  </Accordion>
+  
+  <Accordion title="Saved key doesn't work">
+    - WhatsApp generates new keys when E2E backup is reset
+    - Different devices have different keys
+    - Keys are specific to each WhatsApp installation
+    - Delete the saved key and enter the current key
+  </Accordion>
+  
+  <Accordion title="Brute force scan takes too long">
+    This is normal for unknown formats. The scan explores offset combinations to find valid IV and ciphertext positions. Let it complete or try a different backup file.
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<Card title="View Database" icon="database" href="/features/database-viewer">
+  After decryption, browse the database contents and view chat history
+</Card>

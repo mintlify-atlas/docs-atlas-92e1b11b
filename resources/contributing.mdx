@@ -1,0 +1,503 @@
+---
+title: "Contributing Guidelines"
+description: "How to contribute to the WhatsApp Forensic Tool project"
+---
+
+# Contributing to WhatsApp Forensic Tool
+
+Thank you for your interest in contributing to the WhatsApp Forensic Tool! We welcome contributions from the community to help improve this project.
+
+## Ways to Contribute
+
+There are many ways you can contribute to this project:
+
+- **Report bugs** and issues
+- **Suggest new features** or improvements
+- **Submit code** via pull requests
+- **Improve documentation** and examples
+- **Test on different platforms** and report results
+- **Share knowledge** and help other users
+
+## Code of Conduct
+
+### Our Pledge
+
+We are committed to providing a welcoming and inclusive environment for all contributors, regardless of:
+
+- Experience level
+- Age, body size, disability, ethnicity, gender identity and expression
+- Nationality, personal appearance, race, religion, or sexual identity and orientation
+
+### Expected Behavior
+
+- Be respectful and professional in all interactions
+- Welcome newcomers and help them get started
+- Accept constructive criticism gracefully
+- Focus on what is best for the community and project
+- Show empathy towards other community members
+
+### Unacceptable Behavior
+
+- Harassment, trolling, or insulting/derogatory comments
+- Personal or political attacks
+- Publishing others' private information without permission
+- Any conduct that would be inappropriate in a professional setting
+
+### Enforcement
+
+Instances of unacceptable behavior may be reported to [developer@cedroid.com](mailto:developer@cedroid.com). All complaints will be reviewed and investigated promptly and fairly.
+
+## Getting Started
+
+### Prerequisites
+
+Before contributing, ensure you have:
+
+- Python 3.8 or higher installed
+- Git for version control
+- A GitHub account
+- Basic understanding of Python and forensic concepts
+- Familiarity with the project structure
+
+### Setting Up Development Environment
+
+1. **Fork the repository** on GitHub
+
+2. **Clone your fork** locally:
+   ```bash
+   git clone https://github.com/YOUR-USERNAME/whatsapp-forensic-tool.git
+   cd whatsapp-forensic-tool
+   ```
+
+3. **Add upstream remote** to sync with the main repository:
+   ```bash
+   git remote add upstream https://github.com/cedroid/whatsapp-forensic-tool.git
+   ```
+
+4. **Create a virtual environment**:
+   ```bash
+   python3 -m venv venv
+   source venv/bin/activate  # On Windows: venv\Scripts\activate
+   ```
+
+5. **Install dependencies**:
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+6. **Verify installation**:
+   ```bash
+   python main.py
+   ```
+
+## Development Workflow
+
+### 1. Create a Branch
+
+Create a new branch for your feature or bug fix:
+
+```bash
+git checkout -b feature/your-feature-name
+# or
+git checkout -b fix/bug-description
+```
+
+Branch naming conventions:
+- `feature/` - New features or enhancements
+- `fix/` - Bug fixes
+- `docs/` - Documentation updates
+- `refactor/` - Code refactoring without functional changes
+- `test/` - Adding or updating tests
+
+### 2. Make Your Changes
+
+Follow the coding standards and best practices outlined below.
+
+### 3. Test Your Changes
+
+Before submitting, ensure:
+- Code runs without errors
+- Existing functionality is not broken
+- New features work as intended
+- Code is tested on relevant platforms (Windows/Linux/macOS/Android)
+
+### 4. Commit Your Changes
+
+Write clear, descriptive commit messages:
+
+```bash
+git add .
+git commit -m "feat: add support for crypt16 format"
+```
+
+Commit message conventions:
+- `feat:` - New feature
+- `fix:` - Bug fix
+- `docs:` - Documentation changes
+- `refactor:` - Code refactoring
+- `test:` - Adding or updating tests
+- `chore:` - Maintenance tasks
+
+Example commit messages:
+```bash
+feat: add progress bar for media extraction
+fix: resolve decryption failure on crypt14 files
+docs: update installation instructions for macOS
+refactor: improve crypto_manager code structure
+```
+
+### 5. Push to Your Fork
+
+```bash
+git push origin feature/your-feature-name
+```
+
+### 6. Create a Pull Request
+
+1. Go to your fork on GitHub
+2. Click "New Pull Request"
+3. Select your branch to merge into `main`
+4. Fill out the pull request template with:
+   - Clear description of changes
+   - Issue number if applicable (e.g., "Fixes #123")
+   - Testing performed
+   - Screenshots (if UI changes)
+
+## Coding Standards
+
+### Python Style Guide
+
+Follow [PEP 8](https://peps.python.org/pep-0008/) style guidelines:
+
+- **Indentation**: 4 spaces (no tabs)
+- **Line length**: Maximum 120 characters (100 preferred)
+- **Imports**: 
+  - Standard library imports first
+  - Third-party imports second
+  - Local imports third
+  - Alphabetically sorted within each group
+
+```python
+import os
+import sys
+from typing import Optional, List
+
+from Crypto.Cipher import AES
+from rich.console import Console
+
+from core.utils import print_info, print_error
+```
+
+### Naming Conventions
+
+- **Classes**: PascalCase (`CryptoManager`, `DeviceManager`)
+- **Functions/Methods**: snake_case (`decrypt_file`, `get_devices`)
+- **Constants**: UPPER_SNAKE_CASE (`KEY_FILE`, `DEFAULT_TIMEOUT`)
+- **Private methods**: Leading underscore (`_internal_method`)
+
+### Documentation
+
+All modules, classes, and functions should have docstrings:
+
+```python
+def decrypt_file(self, input_path: str, key_hex: str, output_path: str) -> bool:
+    """
+    Decrypt a WhatsApp backup file using the provided encryption key.
+    
+    Args:
+        input_path: Path to the encrypted .cryptXX file
+        key_hex: 64-character hexadecimal encryption key
+        output_path: Path where decrypted .db file will be saved
+    
+    Returns:
+        True if decryption successful, False otherwise
+    
+    Example:
+        >>> manager = CryptoManager()
+        >>> success = manager.decrypt_file(
+        ...     "msgstore.db.crypt15",
+        ...     "a1b2c3d4...",
+        ...     "decrypted.db"
+        ... )
+    """
+```
+
+### Error Handling
+
+- Use try-except blocks appropriately
+- Provide meaningful error messages
+- Use the `print_error()` utility for user-facing errors
+- Log detailed errors for debugging
+
+```python
+try:
+    result = self.decrypt_file(path, key, output)
+if not result:
+        print_error("Decryption failed. Please verify your key.")
+        return False
+except FileNotFoundError:
+    print_error(f"File not found: {path}")
+    return False
+except Exception as e:
+    print_error(f"Unexpected error: {str(e)}")
+    return False
+```
+
+### Type Hints
+
+Use type hints for function parameters and return values:
+
+```python
+from typing import Optional, List, Dict
+
+def get_devices(self) -> List[str]:
+    """Returns list of connected device serial numbers."""
+    pass
+
+def get_key(self, device_id: str, package: str) -> Optional[str]:
+    """Returns saved key or None if not found."""
+    pass
+```
+
+## Project Structure
+
+Understanding the project structure helps you contribute effectively:
+
+```
+whatsapp-forensic-tool/
+├── core/                   # Core modules
+│   ├── crypto_manager.py   # Encryption/decryption logic
+│   ├── device_manager.py   # ADB device communication
+│   ├── termux_manager.py   # Android-native operations
+│   ├── viewer.py           # Database parsing and viewing
+│   ├── ui.py               # User interface (Rich library)
+│   └── utils.py            # Utility functions
+├── main.py                 # Application entry point
+├── start.bat               # Windows launcher
+├── start.sh                # Linux/Mac/Termux launcher
+├── requirements.txt        # Python dependencies
+└── README.md               # Project documentation
+```
+
+### Module Responsibilities
+
+- **crypto_manager.py**: All cryptographic operations, key management, file decryption
+- **device_manager.py**: ADB communication, device detection, file extraction (PC mode)
+- **termux_manager.py**: Direct Android operations without ADB (Termux mode)
+- **viewer.py**: SQLite database parsing, chat extraction, export functions
+- **ui.py**: User interface, menus, progress bars, formatted output
+- **utils.py**: Shared utilities, logging, file operations
+
+## Testing Requirements
+
+### Manual Testing
+
+Before submitting a pull request:
+
+1. **Test on multiple platforms** (if possible):
+   - Windows 10/11
+   - Ubuntu/Debian Linux
+   - macOS
+   - Android (Termux)
+
+2. **Test different scenarios**:
+   - Fresh installation
+   - Existing installation with saved keys
+   - Multiple connected devices
+   - Different backup formats (crypt12/14/15)
+   - WhatsApp Messenger and Business
+
+3. **Edge cases**:
+   - No devices connected
+   - Invalid encryption keys
+   - Corrupted backup files
+   - Missing dependencies
+
+### Test Data
+
+For testing purposes:
+- Use your own devices and backups
+- Create test backups specifically for development
+- **Never** use unauthorized or third-party data
+- **Never** commit actual backup files or encryption keys to the repository
+
+<Warning>
+  Do not include any real user data, encryption keys, or sensitive information in your contributions.
+</Warning>
+
+## Bug Reports
+
+### Before Reporting
+
+1. **Search existing issues** to avoid duplicates
+2. **Update to the latest version** and verify bug still exists
+3. **Gather information**:
+   - Tool version
+   - Operating system and version
+   - Python version
+   - Android version (if applicable)
+   - Complete error messages and stack traces
+
+### Bug Report Template
+
+When reporting bugs, include:
+
+```markdown
+**Description**
+A clear description of what the bug is.
+
+**To Reproduce**
+Steps to reproduce the behavior:
+1. Launch the tool
+2. Select option '...'
+3. Enter value '...'
+4. See error
+
+**Expected Behavior**
+What you expected to happen.
+
+**Actual Behavior**
+What actually happened.
+
+**Screenshots**
+If applicable, add screenshots.
+
+**Environment**
+- OS: [e.g., Windows 11, Ubuntu 22.04]
+- Python Version: [e.g., 3.10.5]
+- Tool Version: [e.g., commit hash or release version]
+- Android Version: [if applicable]
+
+**Error Messages**
+```
+[Paste complete error messages here]
+```
+
+**Additional Context**
+Any other relevant information.
+```
+
+## Feature Requests
+
+### Submitting Feature Requests
+
+When requesting new features:
+
+1. **Check existing feature requests** to avoid duplicates
+2. **Describe the problem** the feature would solve
+3. **Explain your proposed solution**
+4. **Consider alternatives** you've thought about
+5. **Provide examples** or mockups if applicable
+
+### Feature Request Template
+
+```markdown
+**Is your feature request related to a problem?**
+A clear description of the problem. Ex. "I'm frustrated when [...]"
+
+**Proposed Solution**
+Describe the solution you'd like.
+
+**Alternatives Considered**
+Describe alternative solutions or features you've considered.
+
+**Use Case**
+Explain how this feature would be used.
+
+**Additional Context**
+Add any other context, screenshots, or examples.
+```
+
+## Documentation Contributions
+
+Documentation improvements are always welcome:
+
+- Fix typos and grammatical errors
+- Clarify confusing instructions
+- Add examples and tutorials
+- Update outdated information
+- Translate documentation (if applicable)
+
+### Documentation Style
+
+- Use clear, concise language
+- Provide step-by-step instructions
+- Include code examples where helpful
+- Use proper Markdown formatting
+- Test all commands and code snippets
+
+## Security Vulnerabilities
+
+<Warning>
+  **DO NOT** report security vulnerabilities through public GitHub issues.
+</Warning>
+
+If you discover a security vulnerability:
+
+1. **Email** [developer@cedroid.com](mailto:developer@cedroid.com) with details
+2. **Include**:
+   - Type of vulnerability
+   - Steps to reproduce
+   - Potential impact
+   - Suggested fix (if you have one)
+3. **Wait** for a response before disclosing publicly
+4. **Allow** reasonable time for patching (typically 90 days)
+
+## Review Process
+
+### Pull Request Review
+
+After submitting a pull request:
+
+1. **Automated checks** may run (if configured)
+2. **Maintainers** will review your code
+3. **Feedback** may be provided for improvements
+4. **Revisions** may be requested
+5. **Approval** and merge once ready
+
+### Review Criteria
+
+Pull requests are evaluated on:
+
+- Code quality and style compliance
+- Functionality and correctness
+- Performance impact
+- Security implications
+- Documentation completeness
+- Testing thoroughness
+
+## License Agreement
+
+By contributing to this project, you agree that:
+
+- Your contributions will be licensed under the **MIT License**
+- You have the right to submit the contributions
+- You grant the project maintainers perpetual rights to use your contributions
+
+## Recognition
+
+Contributors are recognized in:
+
+- GitHub contributors list
+- Release notes (for significant contributions)
+- Special thanks in documentation (for major features)
+
+## Getting Help
+
+If you need help with contributing:
+
+- **Read the documentation** thoroughly
+- **Search existing issues** for similar questions
+- **Ask questions** in issue discussions
+- **Email** [developer@cedroid.com](mailto:developer@cedroid.com) for guidance
+
+## Contact
+
+- **Email**: [developer@cedroid.com](mailto:developer@cedroid.com)
+- **GitHub**: [cedroid/whatsapp-forensic-tool](https://github.com/cedroid/whatsapp-forensic-tool)
+
+## Thank You!
+
+Your contributions help make this tool better for everyone. Whether you're fixing a typo, reporting a bug, or implementing a new feature, every contribution is valuable and appreciated.
+
+Happy contributing!

@@ -1,0 +1,383 @@
+---
+title: "Utils"
+description: "Helper functions for directory management, validation, and logging"
+icon: "wrench"
+---
+
+## Overview
+
+The `utils` module (`core/utils.py`) provides essential utility functions for directory structure management, key validation, platform-specific path resolution, and application logging.
+
+## Logging Setup
+
+### `setup_logger()`
+
+Configures a logger with file output for the application.
+
+```python
+def setup_logger(name: str = "WhatsAppForensic") -> logging.Logger
+```
+
+<ParamField path="name" type="str" default="WhatsAppForensic">
+  Logger name identifier
+</ParamField>
+
+<ResponseField name="return" type="logging.Logger">
+  Configured logger instance with file handler
+</ResponseField>
+
+**Configuration:**
+- Log level: `INFO` for file output
+- Format: `YYYY-MM-DD HH:MM:SS - LEVEL - message`
+- File: `app.log` in current working directory
+- Console handler is disabled to keep UI clean
+
+**Example:**
+
+```python
+from core.utils import setup_logger
+
+custom_logger = setup_logger("MyModule")
+custom_logger.info("Operation started")
+custom_logger.error("An error occurred")
+```
+
+### `logger`
+
+Global logger instance for the application.
+
+```python
+logger = setup_logger()
+```
+
+**Usage:**
+
+```python
+from core.utils import logger
+
+logger.info("Device connected successfully")
+logger.warning("No encryption key found")
+logger.error("Failed to decrypt database")
+```
+
+## Directory Management
+
+### `check_structure()`
+
+Ensures the required directory structure exists in the current working directory.
+
+```python
+def check_structure()
+```
+
+**Created Directories:**
+- `adb/`: ADB-related files and binaries
+- `backups/`: Dumped WhatsApp backup files
+- `core/`: Core application modules
+
+**Example:**
+
+```python
+from core.utils import check_structure
+
+# Call at application startup
+check_structure()
+
+# Now safe to use ./adb, ./backups, ./core directories
+```
+
+### `get_app_data_path()`
+
+Returns the platform-specific application data directory for persistent storage.
+
+```python
+def get_app_data_path() -> str
+```
+
+<ResponseField name="return" type="str">
+  Absolute path to application data directory
+</ResponseField>
+
+**Platform Paths:**
+
+| Platform | Path |
+|----------|------|
+| Windows | `%LOCALAPPDATA%\WhatsAppForensicTool` |
+| macOS | `~/Library/Application Support/WhatsAppForensicTool` |
+| Linux | `~/.config/WhatsAppForensicTool` |
+
+**Features:**
+- Automatically creates directory if it doesn't exist
+- Used by CryptoManager for secure key storage
+- Persistent across application runs
+
+**Example:**
+
+```python
+from core.utils import get_app_data_path
+import os
+
+app_dir = get_app_data_path()
+config_file = os.path.join(app_dir, 'config.json')
+
+print(f"Config stored at: {config_file}")
+# Windows: C:\Users\User\AppData\Local\WhatsAppForensicTool\config.json
+# Linux: /home/user/.config/WhatsAppForensicTool/config.json
+# macOS: /Users/user/Library/Application Support/WhatsAppForensicTool/config.json
+```
+
+## Platform Detection
+
+### `get_os_type()`
+
+Detects the current operating system.
+
+```python
+def get_os_type() -> str
+```
+
+<ResponseField name="return" type="str">
+  OS identifier: `'windows'`, `'linux'`, `'darwin'`, or `'unknown'`
+</ResponseField>
+
+**Example:**
+
+```python
+from core.utils import get_os_type
+
+os_type = get_os_type()
+
+if os_type == 'windows':
+    adb_binary = 'adb.exe'
+elif os_type in ['linux', 'darwin']:
+    adb_binary = './adb'
+else:
+    print("Unsupported OS")
+```
+
+## Validation
+
+### `validate_hex_key()`
+
+Validates whether a string is a valid 64-character hexadecimal encryption key.
+
+```python
+def validate_hex_key(key: str) -> bool
+```
+
+<ParamField path="key" type="str" required>
+  String to validate as hex key
+</ParamField>
+
+<ResponseField name="return" type="bool">
+  True if key is valid 64-char hex string, False otherwise
+</ResponseField>
+
+**Validation Rules:**
+- Exactly 64 characters long (32 bytes)
+- All characters are hexadecimal (0-9, a-f, A-F)
+- No spaces, hyphens, or other separators
+
+**Example:**
+
+```python
+from core.utils import validate_hex_key
+
+valid_key = "a1b2c3d4e5f6789012345678901234567890abcdefabcdefabcdefabcdefabcd"
+invalid_key = "short_key"
+
+if validate_hex_key(valid_key):
+    print("Key is valid")
+    # Proceed with decryption
+else:
+    print("Invalid key format")
+
+print(validate_hex_key(valid_key))   # True
+print(validate_hex_key(invalid_key)) # False
+print(validate_hex_key("G" * 64))    # False (G is not hex)
+print(validate_hex_key("a" * 63))    # False (wrong length)
+```
+
+## Legacy Functions (Deprecated)
+
+The following functions are deprecated and redirect to the logger. Use the `UI` class for user-facing messages.
+
+### `print_banner()`
+
+Deprecated. Use `ui.print_header()` instead.
+
+```python
+def print_banner()
+```
+
+### `print_info()`
+
+Deprecated. Redirects to `logger.info()`. Use `ui.print_info()` for user messages.
+
+```python
+def print_info(msg: str, verbose: bool = True)
+```
+
+### `print_success()`
+
+Deprecated. Redirects to `logger.info()`. Use `ui.print_success()` for user messages.
+
+```python
+def print_success(msg: str)
+```
+
+### `print_warning()`
+
+Deprecated. Redirects to `logger.warning()`. Use `ui.print_warning()` for user messages.
+
+```python
+def print_warning(msg: str)
+```
+
+### `print_error()`
+
+Deprecated. Redirects to `logger.error()`. Use `ui.print_error()` for user messages.
+
+```python
+def print_error(msg: str)
+```
+
+**Migration Example:**
+
+```python
+# Old (deprecated)
+from core.utils import print_info, print_success, print_error
+print_info("Processing...")
+print_success("Done!")
+print_error("Failed!")
+
+# New (recommended)
+from core.ui import ui
+from core.utils import logger
+
+ui.print_info("Processing...")    # User-facing messages
+ui.print_success("Done!")
+ui.print_error("Failed!")
+
+logger.info("Background task completed")  # Internal logging
+```
+
+## Complete Usage Example
+
+```python
+import os
+from core.utils import (
+    check_structure,
+    get_app_data_path,
+    get_os_type,
+    validate_hex_key,
+    logger
+)
+from core.ui import ui
+
+# Setup application structure
+logger.info("Starting WhatsApp Forensic Tool")
+check_structure()
+
+# Detect platform
+os_type = get_os_type()
+logger.info(f"Running on {os_type}")
+
+if os_type == 'windows':
+    adb_path = os.path.join('adb', 'adb.exe')
+elif os_type in ['linux', 'darwin']:
+    adb_path = os.path.join('adb', 'adb')
+else:
+    ui.print_error("Unsupported operating system")
+    exit(1)
+
+# Get app data directory for persistent storage
+app_data = get_app_data_path()
+key_storage = os.path.join(app_data, 'keys.json')
+logger.info(f"Key storage location: {key_storage}")
+
+# Validate user-provided encryption key
+user_key = ui.ask("Enter 64-character hex key")
+
+if not validate_hex_key(user_key):
+    ui.print_error("Invalid key format. Must be 64 hex characters.")
+    logger.error(f"Invalid key format provided: length={len(user_key)}")
+    exit(1)
+
+ui.print_success("Key validated successfully")
+logger.info("Encryption key validated")
+
+# Save configuration to app data directory
+config_path = os.path.join(app_data, 'config.json')
+import json
+
+config = {
+    "os": os_type,
+    "adb_path": adb_path,
+    "version": "2.0"
+}
+
+with open(config_path, 'w') as f:
+    json.dump(config, f, indent=2)
+
+logger.info(f"Configuration saved to {config_path}")
+ui.print_success("Setup complete!")
+```
+
+## Directory Structure Example
+
+After calling `check_structure()`, your project directory will contain:
+
+```
+WhatsAppForensicTool/
+├── adb/                  # ADB binaries (created by check_structure)
+│   ├── adb.exe          # Windows
+│   └── adb              # Linux/Mac
+├── backups/             # Dumped files (created by check_structure)
+│   ├── msgstore.db.crypt15
+│   └── key
+├── core/                # Core modules (created by check_structure)
+│   ├── crypto_manager.py
+│   ├── device_manager.py
+│   ├── viewer.py
+│   ├── ui.py
+│   └── utils.py
+├── main.py
+└── app.log              # Generated by logger
+```
+
+Application data directory (platform-specific):
+
+```
+# Windows: %LOCALAPPDATA%\WhatsAppForensicTool\
+C:\Users\Username\AppData\Local\WhatsAppForensicTool\
+├── keys.json            # Encrypted key storage
+└── config.json
+
+# Linux: ~/.config/WhatsAppForensicTool/
+/home/username/.config/WhatsAppForensicTool/
+├── keys.json
+└── config.json
+
+# macOS: ~/Library/Application Support/WhatsAppForensicTool/
+/Users/username/Library/Application Support/WhatsAppForensicTool/
+├── keys.json
+└── config.json
+```
+
+## Related
+
+<CardGroup cols={2}>
+  <Card title="CryptoManager" icon="lock" href="/api/crypto-manager">
+    Uses get_app_data_path() for secure key storage
+  </Card>
+  <Card title="UI" icon="terminal" href="/api/ui">
+    Recommended for user-facing messages
+  </Card>
+  <Card title="Setup Guide" icon="rocket" href="/getting-started/installation">
+    Initial project setup and structure
+  </Card>
+  <Card title="Configuration" icon="gear" href="/advanced/configuration">
+    Application configuration options
+  </Card>
+</CardGroup>

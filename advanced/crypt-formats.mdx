@@ -1,0 +1,452 @@
+---
+title: 'Crypt Format Specifications'
+description: 'Technical details of WhatsApp backup encryption formats'
+icon: 'file-lock'
+---
+
+## Overview
+
+WhatsApp has evolved its backup encryption over the years, introducing three major formats: **crypt12**, **crypt14**, and **crypt15**. Each version introduced stronger encryption and additional security features. Understanding these formats is crucial for successful decryption and forensic analysis.
+
+## Encryption Format Evolution
+
+### Timeline
+
+- **crypt12** (Legacy): AES-GCM with fixed key derivation
+- **crypt14** (Current): AES-GCM with key file (`key` file required)
+- **crypt15** (Latest): End-to-end encrypted with user passphrase
+
+<Info>
+The tool supports all three formats with automatic format detection based on file extension and structure.
+</Info>
+
+## crypt12 Format (Legacy)
+
+### Overview
+
+**Status**: Deprecated (used prior to 2018)  
+**Cipher**: AES-256-GCM  
+**Key Source**: Extracted from WhatsApp APK or device memory
+
+### File Structure
+
+```
+[Header: 0-50]     - Magic bytes and metadata
+[IV/Nonce: 51-66]  - 16-byte initialization vector
+[Data: 67-EOF-20]  - Encrypted and compressed data
+[Tag: EOF-20-EOF]  - Authentication tag
+```
+
+### Decryption Process
+
+Implemented in `CryptoManager.decrypt_file()` at `core/crypto_manager.py:143-150`:
+
+```python
+if is_crypt12:
+    iv = data[51:67]              # Extract IV
+    ciphertext = data[67:-20]      # Extract ciphertext
+    cipher = AES.new(raw_key, AES.MODE_GCM, nonce=iv)
+    # Last 16 bytes are GCM tag
+    decrypted_data = cipher.decrypt_and_verify(
+        ciphertext[:-16], 
+        ciphertext[-16:]
+    )
+    decrypted_data = zlib.decompress(decrypted_data)  # Decompress
+```
+
+### Key Characteristics
+
+- **Fixed offsets**: IV and data start at predictable positions
+- **Compression**: Data is zlib-compressed before encryption
+- **No key file**: Key is derived from device-specific data
+- **Authentication**: GCM tag ensures data integrity
+
+<Note>
+crypt12 files can often be decrypted with a universal key extracted from the WhatsApp APK, as key derivation was less secure.
+</Note>
+
+## crypt14 Format (Current)
+
+### Overview
+
+**Status**: Widely used (2018-present)  
+**Cipher**: AES-256-GCM  
+**Key Source**: External `key` file stored on device
+
+### File Structure
+
+```
+[Header: Variable]     - Contains metadata, version info
+[IV/Nonce: Variable]   - 16-byte IV at offset determined by header
+[Data: Variable]       - Encrypted and compressed SQLite database
+[Tag: Variable]        - 16-byte or 32-byte GCM authentication tag
+```
+
+**Key difference**: Offsets are **not fixed**. The tool must scan to find correct offsets.
+
+### Common Offsets
+
+The tool defines common offset patterns in `COMMON_OFFSETS` at `core/crypto_manager.py:24`:
+
+```python
+COMMON_OFFSETS = [
+    (8, 24, 135),    # (IV start, IV end, Data start)
+    (67, 83, 190),
+    (191, 207, 224),
+    (67, 83, 83)
+]
+```
+
+These represent:
+- **IV start**: Where the 16-byte nonce begins
+- **IV end**: Where the nonce ends
+- **Data start**: Where encrypted data begins
+
+### Key Derivation
+
+crypt14 uses **HMAC-based key derivation** implemented at `core/crypto_manager.py:125-127`:
+
+```python
+def _derive_key(self, key_stream: bytes) -> bytes:
+    intermediate = hmac.new(b'\x00' * 32, key_stream, hashlib.sha256).digest()
+    return hmac.new(intermediate, b"backup encryption\x01", hashlib.sha256).digest()
+```
+
+**Derivation steps:**
+
+1. **First HMAC**: `HMAC-SHA256(key=\x00*32, message=raw_key_file_contents)`
+2. **Second HMAC**: `HMAC-SHA256(key=intermediate, message="backup encryption\x01")`
+3. **Output**: 256-bit AES key
+
+<Warning>
+The raw key file content (64 hex chars) must be derived through this process. Using the raw key directly will fail for most crypt14 files.
+</Warning>
+
+### Decryption Algorithm
+
+Implemented at `core/crypto_manager.py:152-186`:
+
+```python
+keys_to_try = [
+    ("Derived", self._derive_key(raw_key)),  # Try derived key first
+    ("Raw", raw_key)                          # Fallback to raw key
+]
+
+for name, key in keys_to_try:
+    # 1. Try known offsets
+    for iv_s, iv_e, db_s in self.COMMON_OFFSETS:
+        if len(data) < db_s: continue
+        iv = data[iv_s:iv_e]
+        cipher = AES.new(key, AES.MODE_GCM, nonce=iv)
+        ct = data[db_s:]
+        
+        # Try two tag positions (32-byte footer or 16-byte end)
+        tag = ct[-32:-16] if len(ct) > 32 else ct[-16:]
+        actual = ct[:-32] if len(ct) > 32 else ct[:-16]
+        
+        res = cipher.decrypt_and_verify(actual, tag)
+        decrypted_data = zlib.decompress(res)
+```
+
+**Strategy:**
+
+1. Try derived key with known offsets
+2. Try raw key with known offsets
+3. If failed, brute force scan offsets (lines 172-186)
+
+### Tag Position Variations
+
+Some crypt14 files have:
+- **16-byte tag**: Standard GCM tag at end
+- **32-byte footer**: 16-byte padding + 16-byte tag
+
+The tool tries both: `ct[-32:-16]` and `ct[-16:]`.
+
+### Brute Force Offset Scanning
+
+If known offsets fail, the tool scans for correct positions:
+
+```python
+for iv_s in range(0, 190):  # Scan first 190 bytes for IV
+    iv = data[iv_s:iv_s+16]
+    for db_s in range(iv_s+16, iv_s+300):  # Scan next 300 bytes for data
+        try:
+            cipher = AES.new(key, AES.MODE_GCM, nonce=iv)
+            ct = data[db_s:]
+            res = cipher.decrypt_and_verify(ct[:-16], ct[-16:])
+            decrypted_data = zlib.decompress(res)
+            # Success! Found correct offsets
+            break
+        except:
+            pass  # Wrong offset, continue
+```
+
+<Info>
+Brute force scanning typically completes in 1-5 seconds and is triggered automatically when known offsets fail.
+</Info>
+
+## crypt15 Format (Latest)
+
+### Overview
+
+**Status**: Newest format (2021+)  
+**Cipher**: AES-256-GCM  
+**Key Source**: End-to-end encrypted with user-provided 64-digit passphrase
+
+### Key Differences
+
+- **User passphrase required**: Cannot extract key from device alone
+- **Cloud backup encryption**: Designed for encrypted cloud storage
+- **Stronger security**: Key never stored on device in plaintext
+
+<Warning>
+crypt15 decryption requires the user's 64-digit backup passphrase. This is NOT the device key and cannot be extracted via ADB. The user must provide it manually.
+</Warning>
+
+### Decryption Support
+
+The tool treats crypt15 similarly to crypt14, attempting offset scanning and key derivation. However:
+
+- The `key` file alone is insufficient
+- User must enter the backup passphrase (shown in WhatsApp settings)
+- Key derivation may differ (evolving format)
+
+### Backup Passphrase Location
+
+Users can find their 64-digit backup key in WhatsApp:
+
+1. **Settings** → **Chats** → **Chat Backup**
+2. Tap **End-to-end encrypted backup**
+3. View or create 64-digit key
+
+## Cipher Modes: CBC vs GCM
+
+### AES-GCM (Used by Tool)
+
+**Mode**: Galois/Counter Mode  
+**Benefits**:
+- **Authentication**: Built-in integrity checking via tag
+- **Parallelizable**: Faster decryption
+- **No padding required**: Works with any data length
+
+**Structure**:
+```
+cipher = AES.new(key, AES.MODE_GCM, nonce=iv)
+plaintext = cipher.decrypt_and_verify(ciphertext, tag)
+```
+
+### AES-CBC (Legacy)
+
+**Mode**: Cipher Block Chaining  
+**Issues**:
+- **No authentication**: Must use separate HMAC
+- **Padding required**: PKCS7 padding
+- **Sequential**: Cannot parallelize
+
+<Info>
+WhatsApp migrated from CBC to GCM in early versions. All modern backups (crypt12+) use GCM.
+</Info>
+
+## Practical Decryption Examples
+
+### Example 1: crypt14 with Known Offset
+
+```python
+from core.crypto_manager import CryptoManager
+
+cm = CryptoManager()
+key_hex = "a1b2c3..." # 64 hex chars
+cm.decrypt_file(
+    input_path="msgstore.db.crypt14",
+    key_hex=key_hex,
+    output_path="msgstore.db"
+)
+```
+
+**Output**:
+```
+Decrypting msgstore.db.crypt14...
+Decrypted with Derived Key (Offset 67)
+Saved to: msgstore.db
+```
+
+### Example 2: crypt12 Legacy
+
+```python
+cm.decrypt_file(
+    input_path="msgstore.db.crypt12",
+    key_hex=key_hex,
+    output_path="msgstore.db"
+)
+```
+
+**Output**:
+```
+Decrypting msgstore.db.crypt12...
+Decrypted .crypt12 successfully.
+Saved to: msgstore.db
+```
+
+### Example 3: Offset Scanning Fallback
+
+```
+Decrypting msgstore.db.crypt14...
+Scanning offsets for Derived Key...
+Decrypted at IV:82, DB:156
+Saved to: msgstore.db
+```
+
+## Implementation Deep Dive
+
+### Main Decryption Function
+
+**Location**: `core/crypto_manager.py:129-192`
+
+**Flow**:
+
+1. **Validate input** (line 130-135)
+   - Check file exists
+   - Unhexlify key
+
+2. **Detect format** (line 140)
+   - Check if `.crypt12` extension
+
+3. **Try crypt12 decryption** (lines 143-150)
+   - Fixed offsets
+   - Direct key usage
+
+4. **Try crypt14 decryption** (lines 152-186)
+   - Known offsets with derived key
+   - Known offsets with raw key
+   - Brute force offset scan
+
+5. **Write output** (lines 188-192)
+   - Write decrypted SQLite database
+   - Return success status
+
+### Error Handling
+
+The tool uses try-except blocks extensively:
+
+```python
+try:
+    iv = data[iv_s:iv_e]
+    cipher = AES.new(key, AES.MODE_GCM, nonce=iv)
+    ct = data[db_s:]
+    res = cipher.decrypt_and_verify(actual, tag)
+    decrypted_data = zlib.decompress(res)
+except:
+    pass  # Wrong offset/key, continue trying
+```
+
+Failures are silent—tool tries all possibilities before reporting final failure.
+
+## Debugging Failed Decryption
+
+### Enable Verbose Logging
+
+Modify `core/crypto_manager.py` to add debug output:
+
+```python
+try:
+    res = cipher.decrypt_and_verify(actual, tag)
+    print(f"DEBUG: Successful at IV:{iv_s}, DB:{db_s}, Key:{name}")
+except Exception as e:
+    print(f"DEBUG: Failed at IV:{iv_s}, DB:{db_s}: {e}")
+```
+
+### Inspect File Header
+
+```python
+with open('msgstore.db.crypt14', 'rb') as f:
+    header = f.read(200)
+    print(header.hex())  # Examine first 200 bytes
+```
+
+Look for:
+- Magic bytes (often starts with specific patterns)
+- Version indicators
+- Offset hints
+
+### Verify Key Format
+
+Key must be exactly 64 hexadecimal characters:
+
+```python
+from core.utils import validate_hex_key
+
+key = "a1b2c3..."
+if validate_hex_key(key):
+    print("Valid key format")
+else:
+    print("Invalid: must be 64 hex chars")
+```
+
+## Common Decryption Errors
+
+### "MAC check failed"
+
+**Cause**: Wrong key or corrupted file  
+**Solution**: 
+- Verify key is correct
+- Extract key again from device
+- Check file integrity (not truncated)
+
+### "Error -3 while decompressing data"
+
+**Cause**: Wrong offsets or incomplete decryption  
+**Solution**:
+- Let tool scan offsets (takes longer)
+- Try raw key if derived key fails
+
+### "File not found"
+
+**Cause**: Incorrect path or permissions  
+**Solution**:
+- Use absolute paths
+- Check file permissions (`chmod 644 file.crypt14`)
+
+## Security Considerations
+
+### Key Storage
+
+<Warning>
+Decryption keys are sensitive cryptographic material. The tool stores them encrypted (see [Key Management](/advanced/key-management)), but keys in memory during decryption are vulnerable to:
+- Memory dumps
+- Process inspection
+- Swap file leakage
+</Warning>
+
+### Forensic Best Practices
+
+1. **Work on copies**: Never decrypt original evidence
+2. **Hash verification**: SHA-256 hash files before/after
+3. **Chain of custody**: Log all decryption operations
+4. **Secure key handling**: Use hardware tokens for key storage
+
+## Format Detection Algorithm
+
+The tool uses a simple extension-based detection:
+
+```python
+is_crypt12 = input_path.endswith('.crypt12')
+```
+
+Future enhancements could include:
+- Magic byte detection (header inspection)
+- Automatic version detection from file structure
+- Support for crypt8-crypt11 formats
+
+## References
+
+**Implementation Files**:
+- `core/crypto_manager.py:129-192` - Main decryption logic
+- `core/crypto_manager.py:24` - Common offset definitions
+- `core/crypto_manager.py:125-127` - Key derivation function
+
+**Dependencies**:
+- `Crypto.Cipher.AES` - AES encryption (PyCryptodome)
+- `hashlib.sha256` - SHA-256 hashing
+- `hmac` - HMAC key derivation
+- `zlib` - Data decompression
+- `binascii.unhexlify` - Hex string to bytes conversion

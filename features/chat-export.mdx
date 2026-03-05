@@ -1,0 +1,534 @@
+---
+title: 'Chat Export'
+description: 'Export WhatsApp chat history to multiple formats with media linking'
+icon: 'file-export'
+---
+
+## Overview
+
+The chat export feature converts decrypted WhatsApp databases into portable formats including HTML, CSV, JSON, and TXT. It supports fuzzy search for finding chats, exports all chats or specific conversations, and includes intelligent media linking for HTML exports.
+
+## Export Formats
+
+<CardGroup cols={2}>
+  <Card title="HTML" icon="code">
+    WhatsApp-style chat interface with media embeds and responsive design
+  </Card>
+  <Card title="CSV" icon="table">
+    Spreadsheet-compatible format for data analysis
+  </Card>
+  <Card title="JSON" icon="brackets-curly">
+    Structured data format for programmatic access
+  </Card>
+  <Card title="TXT" icon="file-lines">
+    Plain text format for simple readability
+  </Card>
+</CardGroup>
+
+## Workflow
+
+The `export_chats()` method in `main.py:543` orchestrates the export process:
+
+<Steps>
+  <Step title="Database Selection">
+    Choose which decrypted database to export from
+  </Step>
+  <Step title="Export Scope">
+    Select to export all chats or a single chat
+  </Step>
+  <Step title="Chat Search (if single)">
+    Find specific chat using fuzzy matching
+  </Step>
+  <Step title="Format Selection">
+    Choose output format(s)
+  </Step>
+  <Step title="Export Execution">
+    Generate formatted export files
+  </Step>
+</Steps>
+
+## Database Selection
+
+```python
+dbs = []
+if os.path.exists("backups"):
+    for root, _, files in os.walk("backups"):
+        for f in files:
+            if f.endswith('.decrypted.db'):
+                dbs.append(os.path.join(root, f))
+
+if not dbs:
+    ui.print_warning("No decrypted databases found.")
+    return
+
+rows = []
+for i, p in enumerate(dbs):
+    t = "WhatsApp" if "messenger" in p.lower() else "Business" if "business" in p.lower() else "Unknown"
+    rows.append([str(i+1), t, os.path.basename(p)])
+
+ui.print_table("Select Database to Export From", ["#", "Type", "File"], rows)
+```
+
+<Info>
+  Export operates independently of the viewer, allowing exports without loading the database in the viewer first.
+</Info>
+
+## Export Options
+
+```python
+ui.print_menu("Export Options", ["All Chats", "Single Chat", "Back"])
+c = ui.ask("Choice", choices=["1", "2", "3"])
+
+if c == '3': return
+
+cid = None  # Chat ID for single chat export
+```
+
+## Chat Search and Selection
+
+### Fuzzy Matching with thefuzz
+
+For single chat exports, the tool provides intelligent search:
+
+```python
+if c == '2':
+    search = ui.ask("Search chat (name/jid) - Leave empty to list all")
+    
+    all_chats = export_viewer.list_chats(0)
+    
+    if not search or not search.strip():
+        chats = all_chats
+    else:
+        search = search.lower().strip()
+        # Intelligent Search using Fuzzy Matching
+        if process:  # thefuzz library available
+            # Create lookup dictionary
+            choices = {f"{c['subject']} {c['jid']}": c for c in all_chats}
+            # Get top matches
+            results = process.extract(
+                search,
+                choices.keys(),
+                limit=50,
+                scorer=fuzz.partial_token_sort_ratio
+            )
+            # Filter by score threshold
+            chats = [choices[res[0]] for res in results if res[1] > 40]
+            ui.print_info(f"Found {len(chats)} matches for '{search}' (Fuzzy Search)")
+        else:
+            # Fallback to simple substring
+            chats = [
+                x for x in all_chats
+                if (x['subject'] and search in x['subject'].lower()) or
+                   (x['jid'] and search in x['jid'].lower())
+            ]
+```
+
+<Check>
+  Fuzzy matching allows finding "John Doe" by searching "john", "doe", or even "jhn" with typo tolerance.
+</Check>
+
+### Chat Selection with Pagination
+
+```python
+page, per_page = 0, 20
+while True:
+    display = chats[page*per_page:(page+1)*per_page]
+    
+    rows = []
+    for i, ch in enumerate(display):
+        abs_idx = page*per_page + i + 1
+        subj = ch['subject'] if ch['subject'] else "Unknown"
+        rows.append([str(abs_idx), subj, ch['jid']])
+    
+    ui.print_table(f"Select Chat (Page {page+1})", ["#", "Subject", "JID"], rows)
+    ui.print_info(f"Showing {len(display)} of {len(chats)} chats")
+    
+    s = ui.ask("Select #, [N]ext/[P]rev, [B]ack, or [G]oto Page", default="")
+    
+    if s.lower() == 'b': return
+    elif s.lower() == 'n' and (page+1)*per_page < len(chats):
+        page += 1
+    elif s.lower() == 'p' and page > 0:
+        page -= 1
+    elif s.lower() == 'g':
+        max_pages = (len(chats) + per_page - 1) // per_page
+        p = ui.ask(f"Enter Page (1-{max_pages})")
+        if p.isdigit():
+            p_idx = int(p) - 1
+            if 0 <= p_idx < max_pages:
+                page = p_idx
+    elif s.isdigit():
+        idx = int(s)
+        if 1 <= idx <= len(chats):
+            cid = chats[idx-1]['id']
+            break
+```
+
+## Format Selection
+
+```python
+ui.print_menu("Format", ["HTML", "CSV", "JSON", "TXT", "All Formats", "Back"])
+fmt = ui.ask("Choice", choices=["1", "2", "3", "4", "5", "6"])
+if fmt == '6': return
+```
+
+## Export Directory Structure
+
+Exports are saved alongside the decrypted database:
+
+```python
+db_dir = os.path.dirname(target_db)
+if os.path.basename(db_dir) == 'decrypted':
+    base = os.path.dirname(db_dir)
+else:
+    base = db_dir
+    
+out = os.path.join(base, "exports")
+if not os.path.exists(out):
+    os.makedirs(out)
+```
+
+**Structure:**
+```
+backups/
+└── {device_serial}/
+    └── user_{user_id}/
+        └── messenger/
+            ├── msgstore.db.crypt15
+            ├── msgstore.db.crypt15.decrypted.db
+            ├── Media/
+            └── exports/
+                ├── exported_chats.html
+                ├── exported_chats.csv
+                ├── exported_chats.json
+                └── exported_chats.txt
+```
+
+<Info>
+  This structure allows HTML exports to reference `../Media/` for media files.
+</Info>
+
+## Export Execution
+
+```python
+with ui.spinner("Exporting..."):
+    if fmt == '5':  # All formats
+        for f in ['html','csv','json','txt']:
+            export_viewer.export_chats(out, f, cid)
+    else:
+        f = {'1':'html','2':'csv','3':'json','4':'txt'}.get(fmt,'html')
+        export_viewer.export_chats(out, f, cid)
+
+self.session_stats["exports"] += 1
+```
+
+## CSV Export
+
+The `export_chats()` method in `core/viewer.py:319` handles CSV generation:
+
+```python
+if output_format == 'csv':
+    try:
+        with open(filename, 'w', newline='', encoding='utf-8') as f:
+            writer = csv.writer(f)
+            writer.writerow([
+                'ID', 'Chat JID', 'Chat Name', 'Timestamp',
+                'Message Timestamp', 'Sender', 'Message'
+            ])
+            
+            for chat in chats:
+                msgs = self.get_messages(chat['id'], chat['jid'], limit=0)
+                for m in msgs:
+                    writer.writerow([
+                        chat['id'],
+                        chat['jid'],
+                        chat['subject'],
+                        chat['timestamp'],
+                        m['timestamp'],
+                        m['sender'],
+                        m['text']
+                    ])
+        print_success(f"Exported to {filename}")
+    except Exception as e:
+        print_error(f"Failed to export CSV: {e}")
+```
+
+<Check>
+  CSV format is ideal for importing into Excel, Google Sheets, or database tools.
+</Check>
+
+## JSON Export
+
+```python
+elif output_format == 'json':
+    try:
+        export_data = []
+        for chat in chats:
+            msgs = self.get_messages(chat['id'], chat['jid'], limit=0)
+            chat_data = chat.copy()
+            chat_data['messages'] = msgs
+            export_data.append(chat_data)
+            
+        with open(filename, 'w', encoding='utf-8') as f:
+            json.dump(export_data, f, indent=4, default=str)
+        print_success(f"Exported to {filename}")
+    except Exception as e:
+        print_error(f"Failed to export JSON: {e}")
+```
+
+<Info>
+  JSON exports preserve the complete data structure for programmatic processing.
+</Info>
+
+## TXT Export
+
+```python
+elif output_format == 'txt':
+    try:
+        with open(filename, 'w', encoding='utf-8') as f:
+            f.write("WhatsApp Chat Export\n")
+            f.write("=" * 50 + "\n\n")
+            
+            for chat in chats:
+                f.write(f"Chat: {chat['subject']} ({chat['jid']})\n")
+                f.write(f"Last Activity: {chat['timestamp']}\n")
+                f.write("-" * 30 + "\n")
+                
+                msgs = self.get_messages(chat['id'], chat['jid'], limit=0)
+                for m in msgs:
+                    # Timestamp conversion
+                    ts = m['timestamp']
+                    try:
+                        if ts > 10000000000: ts = ts / 1000
+                        import datetime
+                        ts_str = datetime.datetime.fromtimestamp(ts).strftime('%Y-%m-%d %H:%M:%S')
+                    except: ts_str = str(ts)
+                    
+                    f.write(f"[{ts_str}] {m['sender']}: {m['text']}\n")
+                f.write("\n" + "=" * 50 + "\n\n")
+        print_success(f"Exported to {filename}")
+    except Exception as e:
+        print_error(f"Failed to export TXT: {e}")
+```
+
+## HTML Export
+
+The HTML export creates a WhatsApp-style chat interface:
+
+### HTML Structure
+
+```python
+def _export_html(self, chats, filename):
+    html_content = """
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>WhatsApp Chat Export</title>
+        <style>
+            /* WhatsApp-style CSS */
+        </style>
+    </head>
+    <body>
+    """
+```
+
+### Chat Header
+
+```python
+for chat in chats:
+    chat_title = chat['subject']
+    if chat['jid'] in self.contact_map:
+        chat_title = self.contact_map[chat['jid']]
+    elif not chat_title:
+        chat_title = chat['jid']
+
+    initial = chat_title[0].upper() if chat_title else "?"
+    
+    html_content += f"""
+    <div class="main-container">
+        <div class="chat-header">
+            <div class="avatar">{initial}</div>
+            <div class="chat-info">
+                <div class="chat-title">{chat_title}</div>
+                <div class="chat-meta">{chat['jid']}</div>
+            </div>
+        </div>
+        <div class="messages-area">
+    """
+```
+
+### Date Dividers
+
+```python
+last_date_str = None
+
+for m in msgs:
+    ts = m['timestamp']
+    try:
+        if ts > 10000000000: ts = ts / 1000
+        import datetime
+        dt_obj = datetime.datetime.fromtimestamp(ts)
+        time_str = dt_obj.strftime('%H:%M')
+        date_str = dt_obj.strftime('%B %d, %Y')
+    except:
+        time_str = str(ts)
+        date_str = "Unknown Date"
+    
+    # Insert Date Divider if date changed
+    if date_str != last_date_str:
+        html_content += f'<div class="date-divider">{date_str}</div>'
+        last_date_str = date_str
+```
+
+### Message Bubbles
+
+```python
+sender_class = "sent" if m['from_me'] else "received"
+
+sender_html = ""
+if not m['from_me'] and '@g.us' in chat['jid']:  # Group chat
+    sender_jid = m.get('jid', 'unknown')
+    color_idx = sum(ord(c) for c in sender_jid) % 19
+    sender_html = f'<span class="msg-sender color-{color_idx}">{m["sender"]}</span>'
+
+html_content += f"""
+<div class="message-row">
+    <div class="message {sender_class}">
+        {sender_html}
+        <div class="msg-content">
+            {text_content}
+            <span class="msg-meta">{time_str}</span>
+        </div>
+    </div>
+</div>
+"""
+```
+
+<Check>
+  Group chat members are color-coded with 19 vibrant colors for easy identification.
+</Check>
+
+## Media Linking in HTML Exports
+
+The HTML export intelligently links to media files:
+
+```python
+if m.get('media'):
+    media = m['media']
+    media_path = media['path']
+    media_type = media['type']
+    
+    # Relative path construction
+    rel_path = media_path
+    if "Media" in media_path:
+        parts = media_path.split("Media")
+        rel_path = "../Media" + parts[-1]
+    else:
+        rel_path = "../Media/" + os.path.basename(media_path)
+
+    rel_path = rel_path.replace('\\', '/')
+    
+    if media_type.startswith('image/'):
+        media_html = f'<div class="media-container"><a href="{rel_path}" target="_blank"><img src="{rel_path}" alt="Image" loading="lazy"></a></div>'
+    elif media_type.startswith('video/'):
+        media_html = f'<div class="media-container"><video controls><source src="{rel_path}" type="{media_type}"></video></div>'
+    elif media_type.startswith('audio/'):
+        media_html = f'<div class="media-container"><audio controls><source src="{rel_path}" type="{media_type}"></audio></div>'
+    else:
+        fname = os.path.basename(media_path)
+        media_html = f'<div class="media-container"><a href="{rel_path}" target="_blank">📄 {fname}</a></div>'
+```
+
+<Warning>
+  Media links only work if media was extracted during backup dump. Missing media files will show broken links.
+</Warning>
+
+## Opening Exported Files
+
+On Windows, the export directory automatically opens:
+
+```python
+ui.print_success(f"Exported to {out}")
+if sys.platform=='win32':
+    try:
+        os.startfile(out)
+    except: pass
+```
+
+## WhatsApp-Style CSS
+
+The HTML export includes comprehensive styling:
+
+- **Responsive Design**: Adapts to mobile and desktop viewports
+- **Sticky Header**: Chat header remains visible while scrolling
+- **Message Bubbles**: Sent messages (green) vs received (white)
+- **Tails**: Authentic WhatsApp bubble tails
+- **Background**: WhatsApp's signature chat background pattern
+- **Media Embeds**: Inline images, videos, and audio players
+- **Date Dividers**: Automatic date separators
+
+<Info>
+  The HTML export closely mimics the WhatsApp Web interface for familiarity.
+</Info>
+
+## Features
+
+<CardGroup cols={2}>
+  <Card title="Fuzzy Search" icon="magnifying-glass">
+    Find chats with typo tolerance and partial matching
+  </Card>
+  <Card title="Batch Export" icon="layer-group">
+    Export all chats at once in any format
+  </Card>
+  <Card title="Multi-Format" icon="file-contract">
+    Generate all formats simultaneously
+  </Card>
+  <Card title="Media Embedding" icon="photo-film">
+    HTML exports display images, videos, and audio inline
+  </Card>
+  <Card title="Contact Resolution" icon="user">
+    Displays contact names instead of JIDs
+  </Card>
+  <Card title="Chronological Order" icon="timeline">
+    Messages exported in conversation order
+  </Card>
+</CardGroup>
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Fuzzy search not working">
+    The `thefuzz` library is optional. If not installed, the tool falls back to substring matching. Install with `pip install thefuzz` for better search results.
+  </Accordion>
+  
+  <Accordion title="Media not showing in HTML">
+    - Ensure media was extracted during backup dump
+    - Check that the Media folder exists at `../Media/` relative to the HTML file
+    - Media paths must match the database references
+    - Some media may have been deleted from the device
+  </Accordion>
+  
+  <Accordion title="Export takes a long time">
+    Exporting all chats with thousands of messages can take time. Consider:
+    - Exporting individual chats instead of all at once
+    - Using simpler formats (TXT/CSV) instead of HTML
+    - Being patient with large databases (100k+ messages)
+  </Accordion>
+  
+  <Accordion title="Special characters corrupted">
+    Ensure your text editor or spreadsheet program supports UTF-8 encoding. All exports use UTF-8 to preserve emojis and international characters.
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Media Dumping" icon="photo-film" href="/features/media-dumping">
+    Learn more about extracting media files for complete exports
+  </Card>
+  <Card title="Development" icon="code" href="/development">
+    Extend the export functionality or add custom formats
+  </Card>
+</CardGroup>

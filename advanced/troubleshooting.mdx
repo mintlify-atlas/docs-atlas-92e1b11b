@@ -1,0 +1,680 @@
+---
+title: 'Troubleshooting'
+description: 'Solutions for common errors and issues'
+icon: 'wrench'
+---
+
+## Overview
+
+This guide covers common issues, error messages, and their solutions. Issues are organized by feature area for quick reference.
+
+## ADB Connection Issues
+
+### Device Not Detected
+
+**Symptom**: "No devices found. Connect a device and enable USB Debugging."
+
+**Causes & Solutions**:
+
+<AccordionGroup>
+  <Accordion title="USB Debugging Not Enabled">
+    **Solution**: Enable Developer Options and USB Debugging on your Android device:
+
+    1. Go to **Settings** → **About Phone**
+    2. Tap **Build Number** 7 times to enable Developer Options
+    3. Go to **Settings** → **Developer Options**
+    4. Enable **USB Debugging**
+    5. Reconnect device and accept the authorization prompt
+
+    **Note**: Some manufacturers hide Developer Options in different menus (e.g., Xiaomi: Additional Settings).
+  </Accordion>
+
+  <Accordion title="USB Cable Issues">
+    **Solution**: 
+    - Use a **data cable**, not a charge-only cable
+    - Try a different USB port (prefer USB 2.0 ports)
+    - Avoid USB hubs—connect directly to computer
+    - Test cable with another device to verify functionality
+  </Accordion>
+
+  <Accordion title="Driver Issues (Windows)">
+    **Solution**: Install proper USB drivers:
+
+    ```bash
+    # Check if device is recognized
+    adb devices
+    ```
+
+    If shows "unauthorized" or "offline":
+    1. Install manufacturer-specific USB drivers (Samsung, Xiaomi, etc.)
+    2. Or install **Universal ADB Driver**: https://adb.clockworkmod.com/
+    3. Restart computer after driver installation
+
+    **Windows Device Manager**:
+    - Open Device Manager (Win+X → Device Manager)
+    - Look for device under "Portable Devices" or "Other Devices"
+    - Right-click → Update Driver → Browse → Select driver folder
+  </Accordion>
+
+  <Accordion title="ADB Server Issues">
+    **Solution**: Restart ADB server:
+
+    ```bash
+    # Kill existing ADB server
+    adb kill-server
+
+    # Start fresh server
+    adb start-server
+
+    # Check devices
+    adb devices
+    ```
+
+    If using multiple ADB instances (Android Studio, other tools):
+    ```bash
+    # Windows: Kill all ADB processes
+    taskkill /F /IM adb.exe
+
+    # Linux/macOS
+    killall adb
+    ```
+  </Accordion>
+
+  <Accordion title="Device Shows as 'Unauthorized'">
+    **Solution**: Accept USB debugging authorization:
+
+    1. Unlock your phone screen
+    2. Look for "Allow USB debugging?" prompt
+    3. Check "Always allow from this computer"
+    4. Tap **OK**
+
+    If prompt doesn't appear:
+    ```bash
+    # Revoke all previous authorizations
+    adb shell rm /data/misc/adb/adb_keys
+
+    # Reconnect device (prompt should appear now)
+    ```
+  </Accordion>
+</AccordionGroup>
+
+### "ADB not installed" Error
+
+**Symptom**: Tool cannot find ADB executable.
+
+**Solution**:
+
+The tool should auto-download ADB. If it fails:
+
+```bash
+# Manual download (Linux example)
+wget https://dl.google.com/android/repository/platform-tools-latest-linux.zip
+unzip platform-tools-latest-linux.zip -d adb/
+
+# Verify
+./adb/platform-tools/adb version
+```
+
+**Paths checked by tool** (`core/device_manager.py:43-47`):
+- `adb/platform-tools/adb[.exe]`
+- `adb/adb[.exe]`
+
+### Multiple Devices Connected
+
+**Symptom**: "error: more than one device/emulator"
+
+**Solution**:
+
+The tool handles this automatically in menu option "Scan Connected Devices". It will prompt you to select a device.
+
+For manual ADB commands, specify device serial:
+
+```bash
+# List devices
+adb devices
+
+# Use specific device
+adb -s <serial> shell
+```
+
+## Backup Extraction Issues
+
+### Empty Backup Directories
+
+**Symptom**: "No backup files found" when dumping.
+
+**Causes & Solutions**:
+
+<AccordionGroup>
+  <Accordion title="Android 11+ Scoped Storage">
+    **Cause**: Modern Android versions restrict access to app-specific directories.
+
+    **Solution**: Backups may be in scoped storage path:
+
+    Paths checked by tool (`core/device_manager.py:165-170`):
+    - Legacy: `/storage/emulated/0/WhatsApp/Databases`
+    - Scoped: `/storage/emulated/0/Android/media/com.whatsapp/WhatsApp/Databases`
+
+    Tool automatically checks both. If still not found:
+    ```bash
+    # Manually search for backup files
+    adb shell find /sdcard -name "msgstore*.crypt*" 2>/dev/null
+    ```
+  </Accordion>
+
+  <Accordion title="WhatsApp Not Installed">
+    **Solution**: 
+    - Install WhatsApp or WhatsApp Business on device
+    - Launch app at least once to initialize directories
+    - Enable chat backup in Settings → Chats → Chat Backup
+  </Accordion>
+
+  <Accordion title="No Backups Created Yet">
+    **Solution**: Create a manual backup:
+
+    1. Open WhatsApp
+    2. Go to **Settings** → **Chats** → **Chat Backup**
+    3. Tap **Back Up** to create a local backup
+    4. Wait for backup to complete
+    5. Re-run tool's dump feature
+  </Accordion>
+
+  <Accordion title="Multi-User Device">
+    **Cause**: Device has multiple user profiles (Work Profile, Guest, etc.)
+
+    **Solution**: Tool scans all users automatically. Check if WhatsApp is installed in correct user profile:
+
+    ```bash
+    # List users
+    adb shell pm list users
+
+    # Check WhatsApp in specific user
+    adb shell pm list packages --user 0 | grep whatsapp
+    ```
+  </Accordion>
+</AccordionGroup>
+
+### Permission Denied During Dump
+
+**Symptom**: "Permission denied" when pulling files.
+
+**Solution**:
+
+```bash
+# Option 1: Use ADB pull (tool does this automatically)
+adb pull /sdcard/WhatsApp/Databases/msgstore.db.crypt14 .
+
+# Option 2: If root access available
+adb shell
+su
+cp /data/data/com.whatsapp/databases/msgstore.db /sdcard/
+chmod 644 /sdcard/msgstore.db
+exit
+adb pull /sdcard/msgstore.db
+```
+
+<Warning>
+Files in `/data/data/` require root access. The tool accesses files from `/sdcard/` (accessible without root).
+</Warning>
+
+### Media Dump Incomplete
+
+**Symptom**: "Media dump failed" or partial media extraction.
+
+**Causes**:
+- **Large media folders** (10GB+): May timeout or fail
+- **Storage space**: Insufficient disk space on computer
+- **Connection interruption**: USB disconnect during transfer
+
+**Solution**:
+
+```bash
+# Use ADB directly with verbose logging
+adb -s <device_serial> pull /sdcard/WhatsApp/Media ./backups/media/
+
+# For very large folders, use rsync (Linux/macOS)
+adb shell "cd /sdcard/WhatsApp && tar -czf - Media/" | tar -xzf - -C ./backups/
+```
+
+## Decryption Issues
+
+### Wrong Key Error
+
+**Symptom**: "Decryption failed" or "MAC check failed"
+
+**Cause**: Incorrect decryption key.
+
+**Solutions**:
+
+<AccordionGroup>
+  <Accordion title="Extract Key from Device">
+    **For crypt14/15** (requires root or special exploit):
+
+    ```bash
+    # With root access
+    adb shell
+    su
+    cat /data/data/com.whatsapp/files/key
+    # Copy hex output (64 chars)
+    ```
+
+    **Without root** (use Termux mode):
+    - Deploy tool to Termux (Menu Option: Deploy to Termux)
+    - Run tool inside Termux app (has direct access to WhatsApp directory)
+  </Accordion>
+
+  <Accordion title="Key File Location">
+    **Device paths checked**:
+    - `/data/data/com.whatsapp/files/key` (Standard WhatsApp)
+    - `/data/data/com.whatsapp.w4b/files/key` (WhatsApp Business)
+
+    **If using old backup with new key**: Keys change when reinstalling WhatsApp. Use key from the same installation period as backup.
+  </Accordion>
+
+  <Accordion title="crypt15 Passphrase">
+    **For crypt15**: You need the 64-digit backup passphrase, NOT the device key file.
+
+    **Find passphrase**:
+    1. Open WhatsApp
+    2. Settings → Chats → Chat Backup
+    3. Tap "End-to-end encrypted backup"
+    4. View or reset 64-digit key
+
+    Enter this passphrase (no spaces) in the tool.
+  </Accordion>
+</AccordionGroup>
+
+### Corrupt File Error
+
+**Symptom**: "Error -3 while decompressing data" or "Invalid SQLite database"
+
+**Cause**: File corruption or incomplete transfer.
+
+**Solution**:
+
+```bash
+# Re-download backup from device
+adb pull /sdcard/WhatsApp/Databases/msgstore.db.crypt14 ./msgstore.db.crypt14
+
+# Verify file integrity (compare sizes)
+adb shell ls -l /sdcard/WhatsApp/Databases/msgstore.db.crypt14
+ls -l ./msgstore.db.crypt14
+# Sizes should match exactly
+
+# Calculate SHA-256 hash
+# On device:
+adb shell sha256sum /sdcard/WhatsApp/Databases/msgstore.db.crypt14
+# On computer:
+sha256sum ./msgstore.db.crypt14  # Linux/macOS
+certutil -hashfile msgstore.db.crypt14 SHA256  # Windows
+```
+
+If hashes don't match, file is corrupt—re-extract from device.
+
+### Offset Scanning Timeout
+
+**Symptom**: Decryption hangs on "Scanning offsets..."
+
+**Cause**: Large file + extensive offset scanning.
+
+**Solution**:
+
+Offset scanning typically completes in 1-5 seconds. If longer:
+
+1. **Wait**: Scanning range is limited (0-190 for IV, +300 for data)
+2. **Check system resources**: High CPU usage is normal during scan
+3. **If truly stuck** (>60 seconds): Kill process and try again
+
+**Debug**: Add timeout or progress output in `core/crypto_manager.py:174`:
+
+```python
+for iv_s in range(0, 190):
+    if iv_s % 20 == 0:  # Progress every 20 iterations
+        print(f"Scanning offset {iv_s}/190...")
+```
+
+## Python Environment Issues
+
+### Import Errors
+
+**Symptom**: "ModuleNotFoundError: No module named 'Crypto'"
+
+**Solution**:
+
+```bash
+# Ensure dependencies are installed
+pip install -r requirements.txt
+
+# Or manually install key packages
+pip install pycryptodome rich colorama requests thefuzz tqdm
+
+# Verify installation
+python -c "from Crypto.Cipher import AES; print('OK')"
+```
+
+<Warning>
+**Common mistake**: Installing `crypto` instead of `pycryptodome`
+
+```bash
+# WRONG
+pip install crypto
+
+# CORRECT
+pip install pycryptodome
+```
+</Warning>
+
+### Virtual Environment Issues
+
+**Symptom**: Packages installed but still getting import errors.
+
+**Solution**: Ensure virtual environment is activated:
+
+```bash
+# Create venv
+python -m venv venv
+
+# Activate
+# Windows:
+venv\Scripts\activate
+
+# Linux/macOS:
+source venv/bin/activate
+
+# Verify (should show venv path)
+which python  # Linux/macOS
+where python  # Windows
+
+# Install dependencies in venv
+pip install -r requirements.txt
+
+# Run tool
+python main.py
+```
+
+### Python Version Issues
+
+**Symptom**: Syntax errors or unexpected behavior.
+
+**Solution**: Tool requires Python 3.7+
+
+```bash
+# Check version
+python --version
+
+# If too old, use python3 explicitly
+python3 --version
+python3 main.py
+
+# Or create venv with specific version
+python3.9 -m venv venv
+```
+
+## Platform-Specific Issues
+
+### Windows
+
+<AccordionGroup>
+  <Accordion title="'adb' is not recognized">
+    **Solution**: Add ADB to PATH or use full path:
+
+    ```bash
+    # Option 1: Use full path
+    .\adb\platform-tools\adb.exe devices
+
+    # Option 2: Add to PATH (PowerShell as Admin)
+    $env:Path += ";$PWD\adb\platform-tools"
+    ```
+  </Accordion>
+
+  <Accordion title="Permission Denied Writing Files">
+    **Solution**: Run PowerShell/CMD as Administrator, or change output directory:
+
+    ```bash
+    # Use user directory instead of Program Files
+    cd C:\Users\YourName\Documents
+    python main.py
+    ```
+  </Accordion>
+
+  <Accordion title="Antivirus Blocking ADB">
+    **Solution**: Add ADB directory to antivirus exclusions:
+    - Windows Defender: Settings → Virus & threat protection → Exclusions
+    - Add folder: `<tool_directory>\adb\`
+  </Accordion>
+</AccordionGroup>
+
+### Linux
+
+<AccordionGroup>
+  <Accordion title="Device Access Denied">
+    **Solution**: Add udev rules:
+
+    ```bash
+    # Create udev rules file
+    sudo nano /etc/udev/rules.d/51-android.rules
+
+    # Add line (replace XXXX with vendor ID from lsusb)
+    SUBSYSTEM=="usb", ATTR{idVendor}=="XXXX", MODE="0666", GROUP="plugdev"
+
+    # Reload rules
+    sudo udevadm control --reload-rules
+    sudo udevadm trigger
+
+    # Add user to plugdev group
+    sudo usermod -aG plugdev $USER
+
+    # Logout and login for group change to take effect
+    ```
+  </Accordion>
+
+  <Accordion title="ADB Permission Denied">
+    **Solution**: Make ADB executable:
+
+    ```bash
+    chmod +x adb/platform-tools/adb
+    chmod +x adb/platform-tools/fastboot
+    ```
+  </Accordion>
+</AccordionGroup>
+
+### macOS
+
+<AccordionGroup>
+  <Accordion title="'adb' cannot be opened">
+    **Solution**: Remove quarantine attribute:
+
+    ```bash
+    xattr -d com.apple.quarantine adb/platform-tools/adb
+    xattr -d com.apple.quarantine adb/platform-tools/fastboot
+
+    # Or for entire directory
+    xattr -rd com.apple.quarantine adb/
+    ```
+  </Accordion>
+
+  <Accordion title="USB Debugging Authorization Loop">
+    **Solution**: Reset ADB keys:
+
+    ```bash
+    rm ~/.android/adbkey*
+    adb kill-server
+    adb start-server
+    ```
+  </Accordion>
+</AccordionGroup>
+
+### Termux (Android)
+
+<AccordionGroup>
+  <Accordion title="Permission Denied Accessing WhatsApp Files">
+    **Solution**: Grant Termux storage permission:
+
+    ```bash
+    # Inside Termux
+    termux-setup-storage
+    # Tap "Allow" when prompted
+
+    # Verify access
+    ls /sdcard/WhatsApp
+    ```
+  </Accordion>
+
+  <Accordion title="'No space left on device'">
+    **Solution**: Termux has limited internal storage:
+
+    ```bash
+    # Move backups to external storage
+    mv backups /sdcard/WhatsApp-Forensic-Backups
+    ln -s /sdcard/WhatsApp-Forensic-Backups backups
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Database Viewing Issues
+
+### "Table 'chat' not found"
+
+**Symptom**: Error when listing chats.
+
+**Cause**: Old database schema or corrupt decryption.
+
+**Solution**:
+
+```bash
+# Verify SQLite database integrity
+sqlite3 msgstore.db.decrypted.db "PRAGMA integrity_check;"
+
+# List tables
+sqlite3 msgstore.db.decrypted.db ".tables"
+
+# If no 'chat' table, check for legacy tables
+sqlite3 msgstore.db.decrypted.db "SELECT name FROM sqlite_master WHERE type='table';"
+```
+
+Viewer supports multiple schema versions (`core/viewer.py:73-135`). If error persists, database may be from very old WhatsApp version (pre-2015).
+
+### No Messages Displayed
+
+**Symptom**: Chats listed but no messages when viewing.
+
+**Solution**:
+
+Viewer tries multiple strategies (`core/viewer.py:137-313`):
+1. `message` table (primary)
+2. `available_message_view` (view)
+3. `messages` table (legacy)
+
+If all fail:
+```bash
+# Manually check for messages
+sqlite3 msgstore.db.decrypted.db "SELECT COUNT(*) FROM message;"
+```
+
+If count is 0, backup is empty or from before messages were stored.
+
+## Debug Logging
+
+### Enable Verbose Mode
+
+**Add debug output** in `core/crypto_manager.py`:
+
+```python
+import logging
+logging.basicConfig(level=logging.DEBUG)
+
+logger = logging.getLogger(__name__)
+logger.debug(f"Trying offset IV:{iv_s}, DB:{db_s}")
+```
+
+**Or use existing logger** (`core/utils.py:39`):
+
+```python
+from core.utils import logger
+
+logger.info("Starting decryption...")
+logger.debug(f"Key: {key_hex[:8]}...")
+```
+
+Logs are written to `app.log` in the tool directory.
+
+### View Real-Time Logs
+
+```bash
+# Linux/macOS
+tail -f app.log
+
+# Windows PowerShell
+Get-Content -Path app.log -Wait
+```
+
+## Getting Help
+
+### Collect Diagnostic Information
+
+When reporting issues, include:
+
+```bash
+# System info
+python --version
+adb version
+
+# Tool version (check main.py header)
+head -n 10 main.py
+
+# Error messages (from app.log)
+tail -n 50 app.log
+
+# Device info
+adb devices -l
+adb shell getprop ro.build.version.release
+```
+
+### Common Support Scenarios
+
+<CardGroup cols={2}>
+  <Card title="Decryption Fails" icon="lock">
+    Provide:
+    - Backup file size
+    - File extension (.crypt12/14/15)
+    - First 200 bytes of file (hex)
+    - Error message from tool
+  </Card>
+
+  <Card title="ADB Connection" icon="usb">
+    Provide:
+    - `adb devices` output
+    - Device manufacturer/model
+    - Operating system
+    - USB debugging enabled status
+  </Card>
+
+  <Card title="Python Errors" icon="code">
+    Provide:
+    - Full error traceback
+    - Python version
+    - `pip list` output
+    - OS and version
+  </Card>
+
+  <Card title="Database Issues" icon="database">
+    Provide:
+    - SQLite version: `sqlite3 --version`
+    - Database integrity check output
+    - WhatsApp version when backup created
+  </Card>
+</CardGroup>
+
+## Related Documentation
+
+<Card title="ADB Operations" icon="android" href="/advanced/adb-operations">
+  Deep dive into ADB internals and command execution
+</Card>
+
+<Card title="Crypt Formats" icon="file-lock" href="/advanced/crypt-formats">
+  Understanding WhatsApp encryption formats and decryption
+</Card>
+
+<Card title="Key Management" icon="key" href="/advanced/key-management">
+  How the tool securely stores and manages encryption keys
+</Card>

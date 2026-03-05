@@ -1,0 +1,490 @@
+---
+title: 'Windows Platform Guide'
+description: 'Complete guide for running WhatsApp Forensic Tool on Windows'
+icon: 'windows'
+---
+
+## Overview
+
+The WhatsApp Forensic Tool runs seamlessly on Windows with automatic dependency management. The `start.bat` launcher handles Python installation, virtual environment setup, ADB download, and dependency installation.
+
+## Prerequisites
+
+### System Requirements
+- **Operating System**: Windows 7 or later (Windows 10/11 recommended)
+- **Python**: 3.8 or higher (automatically installed if missing)
+- **USB Drivers**: Device-specific drivers for ADB connectivity
+- **Storage**: At least 500MB free space for tools and dependencies
+- **Internet**: Required for initial setup (downloading Python, ADB, packages)
+
+<Note>
+The launcher script (`start.bat`) will automatically check for Python and guide you through installation if it's not found.
+</Note>
+
+## Installation
+
+### Quick Start
+
+<Steps>
+  <Step title="Download the Tool">
+    Clone or download the WhatsApp Forensic Tool repository:
+    ```bash
+    git clone https://github.com/cedroid/whatsapp-forensic-tool.git
+    cd whatsapp-forensic-tool
+    ```
+  </Step>
+
+  <Step title="Run the Launcher">
+    Double-click `start.bat` or run from Command Prompt:
+    ```cmd
+    start.bat
+    ```
+    
+    The launcher will automatically:
+    - Check for Python installation
+    - Create a virtual environment (`venv`)
+    - Install all Python dependencies
+    - Launch the application
+  </Step>
+
+  <Step title="Connect Your Device">
+    - Enable **USB Debugging** on your Android device
+    - Connect via USB cable
+    - Authorize the computer when prompted on your phone
+  </Step>
+</Steps>
+
+## What start.bat Does
+
+The Windows launcher (`start.bat`) performs these operations:
+
+```batch
+# 1. Check Python Installation
+python --version >nul 2>&1
+if %errorlevel% neq 0 (
+    # Opens Python download page if not found
+    start https://www.python.org/downloads/
+)
+
+# 2. Create Virtual Environment (if doesn't exist)
+if not exist "venv" (
+    python -m venv venv
+)
+
+# 3. Activate Virtual Environment
+call venv\Scripts\activate
+
+# 4. Install Dependencies
+pip install -r requirements.txt
+
+# 5. Launch Application
+python main.py
+```
+
+<Info>
+The virtual environment keeps all dependencies isolated from your system Python installation, preventing conflicts.
+</Info>
+
+## Python Installation on Windows
+
+If Python is not detected, the launcher will open the official Python download page.
+
+### Manual Installation Steps
+
+<Steps>
+  <Step title="Download Python">
+    Visit [python.org/downloads](https://www.python.org/downloads/) and download the latest Python 3.x installer for Windows.
+  </Step>
+
+  <Step title="Run Installer">
+    **IMPORTANT**: Check the box "Add Python to PATH" during installation.
+    
+    This ensures `python` command is available system-wide.
+  </Step>
+
+  <Step title="Verify Installation">
+    Open Command Prompt and verify:
+    ```cmd
+    python --version
+    pip --version
+    ```
+  </Step>
+
+  <Step title="Re-run start.bat">
+    After Python installation, double-click `start.bat` again.
+  </Step>
+</Steps>
+
+<Warning>
+If you forget to check "Add Python to PATH", you'll need to add it manually via System Environment Variables or reinstall Python.
+</Warning>
+
+## ADB Setup
+
+### Automatic Download
+
+The tool automatically downloads ADB platform tools on first run:
+
+- **Source**: Official Google Android SDK Platform Tools
+- **Location**: `adb/platform-tools/` directory
+- **Version**: Latest stable release for Windows
+
+The tool detects your OS and downloads the appropriate version from:
+```
+https://dl.google.com/android/repository/platform-tools-latest-windows.zip
+```
+
+### Manual ADB Installation (Optional)
+
+If automatic download fails:
+
+<Steps>
+  <Step title="Download Platform Tools">
+    Visit [developer.android.com/studio/releases/platform-tools](https://developer.android.com/studio/releases/platform-tools)
+  </Step>
+
+  <Step title="Extract Files">
+    Extract the ZIP file to the `adb/` directory in the tool folder.
+  </Step>
+
+  <Step title="Verify ADB">
+    Open Command Prompt in the `adb/platform-tools/` directory:
+    ```cmd
+    adb.exe version
+    ```
+  </Step>
+</Steps>
+
+## USB Driver Requirements
+
+### Installing Device Drivers
+
+Windows requires specific USB drivers for ADB communication:
+
+<Tabs>
+  <Tab title="Google Pixel/Nexus">
+    Install Google USB Driver:
+    1. Download from [developer.android.com/studio/run/win-usb](https://developer.android.com/studio/run/win-usb)
+    2. Extract and run `android_winusb.inf`
+    3. Or install via Windows Device Manager
+  </Tab>
+
+  <Tab title="Samsung">
+    Install Samsung USB drivers:
+    1. Download from Samsung official website
+    2. Or install Samsung Smart Switch (includes drivers)
+  </Tab>
+
+  <Tab title="Other Manufacturers">
+    Most manufacturers provide drivers:
+    - **Xiaomi**: Mi PC Suite
+    - **OnePlus**: OnePlus USB Drivers
+    - **Huawei**: HiSuite
+    - **Motorola**: Motorola Device Manager
+    
+    Search "[Your Phone Brand] ADB drivers" online.
+  </Tab>
+
+  <Tab title="Universal ADB Drivers">
+    As a last resort, use universal drivers:
+    - [Universal ADB Driver](https://adb.clockworkmod.com/)
+    - Install at your own risk (not officially supported)
+  </Tab>
+</Tabs>
+
+### Verifying Driver Installation
+
+<Steps>
+  <Step title="Connect Device">
+    Connect phone via USB with USB Debugging enabled.
+  </Step>
+
+  <Step title="Check Device Manager">
+    Open Windows Device Manager:
+    - Look under "Android Device" or "Portable Devices"
+    - Your device should appear without a yellow warning icon
+  </Step>
+
+  <Step title="Test ADB Connection">
+    Run in Command Prompt:
+    ```cmd
+    cd adb\platform-tools
+    adb.exe devices
+    ```
+    
+    Expected output:
+    ```
+    List of devices attached
+    ABC123XYZ    device
+    ```
+  </Step>
+</Steps>
+
+<Warning>
+If you see "unauthorized" status, check your phone screen and authorize the computer.
+</Warning>
+
+## Windows Defender & Antivirus
+
+### Potential Issues
+
+Antivirus software may interfere with the tool:
+
+1. **ADB Blocking**: Some antivirus programs flag ADB as suspicious
+2. **Python Script Blocking**: Scripts downloading files may be blocked
+3. **File Access**: Real-time scanning may slow down backup extraction
+
+### Recommended Solutions
+
+<Steps>
+  <Step title="Add Exclusions">
+    Add these folders to Windows Defender exclusions:
+    - Tool installation folder (entire directory)
+    - `adb/` subdirectory
+    - `venv/` Python virtual environment
+    
+    **Windows Defender Settings:**
+    1. Open Windows Security
+    2. Virus & threat protection → Manage settings
+    3. Exclusions → Add or remove exclusions
+    4. Add folder → Select tool directory
+  </Step>
+
+  <Step title="Temporarily Disable (If Needed)">
+    If issues persist during installation:
+    - Temporarily disable real-time protection
+    - Run `start.bat`
+    - Re-enable protection after setup
+    
+    <Warning>
+    Only disable antivirus temporarily and only if you trust the tool source.
+    </Warning>
+  </Step>
+</Steps>
+
+## Running the Tool
+
+### First Run
+
+On first execution:
+
+<CodeGroup>
+```cmd Windows Command Prompt
+cd C:\path\to\whatsapp-forensic-tool
+start.bat
+```
+
+```powershell PowerShell
+cd C:\path\to\whatsapp-forensic-tool
+.\start.bat
+```
+</CodeGroup>
+
+You'll see:
+```
+===========================================
+  WhatsApp Backup Forensic Tool Launcher
+===========================================
+[*] Creating virtual environment...
+[*] Activating virtual environment...
+[*] Checking dependencies...
+[*] Starting Application...
+```
+
+### Subsequent Runs
+
+After initial setup, the launcher:
+- Skips virtual environment creation (already exists)
+- Activates existing venv
+- Updates dependencies if `requirements.txt` changed
+- Launches immediately
+
+## Common Windows Issues
+
+### Issue: "Python is not recognized"
+
+**Cause**: Python not in system PATH
+
+**Solution**:
+<Steps>
+  <Step title="Verify Installation">
+    Check if Python is installed:
+    ```cmd
+    where python
+    ```
+  </Step>
+
+  <Step title="Add to PATH Manually">
+    1. Search "Environment Variables" in Windows Start Menu
+    2. Edit "Path" variable under System Variables
+    3. Add Python installation paths:
+       - `C:\Users\YourName\AppData\Local\Programs\Python\Python311`
+       - `C:\Users\YourName\AppData\Local\Programs\Python\Python311\Scripts`
+  </Step>
+
+  <Step title="Restart Command Prompt">
+    Close and reopen Command Prompt to reload PATH.
+  </Step>
+</Steps>
+
+### Issue: "ADB device not found"
+
+**Possible Causes**:
+- USB Debugging not enabled
+- Missing USB drivers
+- Wrong USB cable (charge-only vs data cable)
+- USB port issue
+
+**Solutions**:
+<Steps>
+  <Step title="Enable USB Debugging">
+    On your Android device:
+    1. Settings → About Phone → Tap "Build Number" 7 times
+    2. Settings → Developer Options → Enable "USB Debugging"
+  </Step>
+
+  <Step title="Try Different USB Port">
+    - Use USB 2.0 ports (not 3.0/3.1)
+    - Avoid USB hubs
+    - Try rear ports on desktop PCs
+  </Step>
+
+  <Step title="Restart ADB Server">
+    ```cmd
+    cd adb\platform-tools
+    adb.exe kill-server
+    adb.exe start-server
+    adb.exe devices
+    ```
+  </Step>
+
+  <Step title="Check USB Cable">
+    Use a data-capable USB cable (not charge-only).
+  </Step>
+</Steps>
+
+### Issue: "Permission denied" errors
+
+**Cause**: Windows User Account Control (UAC) restrictions
+
+**Solution**:
+- Run Command Prompt as Administrator
+- Right-click `start.bat` → "Run as administrator"
+- Ensure you have write permissions in the tool directory
+
+### Issue: Virtual environment activation fails
+
+**Error**: `venv\Scripts\activate.bat` not found
+
+**Solution**:
+```cmd
+# Delete corrupted venv
+rmdir /s /q venv
+
+# Re-run launcher to recreate
+start.bat
+```
+
+### Issue: Slow performance during media extraction
+
+**Cause**: Windows Defender real-time scanning
+
+**Solution**:
+- Add `backups/` folder to Windows Defender exclusions
+- Use SSD for storage (faster than HDD)
+- Close other disk-intensive applications
+
+### Issue: "Access denied" when accessing backups folder
+
+**Cause**: Folder permissions or antivirus lock
+
+**Solution**:
+<Steps>
+  <Step title="Check Folder Permissions">
+    Right-click `backups` folder → Properties → Security → Ensure your user has Full Control
+  </Step>
+
+  <Step title="Unlock Files">
+    If files are locked by antivirus:
+    - Temporarily disable real-time protection
+    - Or add exclusion for `backups/` folder
+  </Step>
+</Steps>
+
+## Advanced Configuration
+
+### Running Without start.bat
+
+For advanced users:
+
+```cmd
+# Activate virtual environment manually
+call venv\Scripts\activate
+
+# Install dependencies
+pip install -r requirements.txt
+
+# Run with custom Python interpreter
+python main.py
+
+# Or use venv Python directly
+venv\Scripts\python.exe main.py
+```
+
+### Troubleshooting Path Issues
+
+If encountering path-related errors:
+
+```cmd
+# Set working directory explicitly
+cd /d %~dp0
+
+# Run from correct location
+python main.py
+```
+
+### Firewall Configuration
+
+If using ADB over WiFi (advanced):
+- Allow ADB through Windows Firewall
+- Open port 5555 for TCP connections
+
+## Performance Tips
+
+<CardGroup cols={2}>
+  <Card title="Use SSD Storage" icon="hard-drive">
+    Store backups on SSD for faster extraction and decryption.
+  </Card>
+
+  <Card title="Disable Real-Time Scanning" icon="shield-halved">
+    Exclude tool directories from antivirus during operations.
+  </Card>
+
+  <Card title="Close Background Apps" icon="window-minimize">
+    Free up RAM and CPU for faster processing.
+  </Card>
+
+  <Card title="Use USB 2.0 Ports" icon="usb">
+    Sometimes more stable than USB 3.0 for ADB.
+  </Card>
+</CardGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Quick Start Guide" icon="rocket" href="/quickstart">
+    Learn the basic workflow and features
+  </Card>
+
+  <Card title="Troubleshooting" icon="wrench" href="/resources/troubleshooting">
+    Common issues and solutions
+  </Card>
+
+  <Card title="Deploy to Termux" icon="mobile" href="/guides/android-termux">
+    Run the tool directly on your Android device
+  </Card>
+
+  <Card title="API Reference" icon="code" href="/api-reference/overview">
+    Technical documentation for developers
+  </Card>
+</CardGroup>
